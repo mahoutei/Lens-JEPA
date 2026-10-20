@@ -15,6 +15,7 @@ import torch
 import torchvision.transforms.functional as TF
 from torch import nn
 
+from ..utils import scatter_average
 from .masking import apply_masks
 
 
@@ -107,6 +108,10 @@ class _SISInverter(nn.Module):
         self.register_buffer("flat_grid_x", gx.flatten(), persistent=False)
         self.register_buffer("flat_grid_y", gy.flatten(), persistent=False)
 
+    def _scatter_source(self, values: torch.Tensor, index: torch.Tensor) -> torch.Tensor:
+        """Map source pixels onto the source plane, averaging colliding pixels."""
+        return scatter_average(values, index, self.size * self.size)
+
     def forward(self, images: torch.Tensor, patches: torch.Tensor) -> torch.Tensor:
         b, n, half = images.shape[0], self.size, self.size // 2
         k = patches
@@ -123,10 +128,7 @@ class _SISInverter(nn.Module):
         iy = torch.round(sy / self.pixel_scale + half).long().clamp(0, n - 1)
         index = ix * n + iy
         flat_in = images.reshape(b, -1)
-        out = torch.zeros(b, n * n, device=images.device, dtype=flat_in.dtype)
-        current = out.gather(1, index)
-        values = flat_in[:, nonzero]
-        out.scatter_(1, index, torch.where(current == 0, values, (current + values) / 2))
+        out = self._scatter_source(flat_in[:, nonzero], index)
         out = out.view(b, n, n)
         return out / (out.amax(dim=(1, 2), keepdim=True) + self.eps)
 

@@ -74,6 +74,22 @@ def check_finite(name: str, tensor: torch.Tensor) -> None:
         raise FloatingPointError(f"Non-finite values in {name}.")
 
 
+def scatter_average(values: torch.Tensor, index: torch.Tensor, size: int) -> torch.Tensor:
+    """Mean of ``values`` into bins given by ``index``; bins with no source are zero.
+
+    ``values`` is ``[B, K]`` and ``index`` is ``[B, K]`` of dtype ``int64`` with
+    entries in ``[0, size)``. The result is ``[B, size]``.
+
+    Unlike ``Tensor.scatter_``, colliding indices are *averaged*, so the result
+    does not depend on the order of the contributions and no source is dropped:
+    a bin holds the mean of its sources, so the count-weighted total of the bins
+    equals the sum of the sources.
+    """
+    total = torch.zeros(values.shape[0], size, device=values.device, dtype=values.dtype).scatter_add_(1, index, values)
+    count = torch.zeros_like(total).scatter_add_(1, index, torch.ones_like(values))
+    return torch.where(count > 0, total / count.clamp_min(1), total)
+
+
 class WarmupCosine:
     """Linear warm-up from ``start`` to ``peak``, then cosine decay to ``final``.
 

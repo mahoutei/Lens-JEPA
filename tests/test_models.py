@@ -85,3 +85,37 @@ def test_lens_jepa_encoder_and_masks():
     context = encoder(images, masks_enc)
     predicted = JEPAPredictor(4, encoder.embed_dim, 32, depth=1, num_heads=2)(context, masks_enc, masks_pred)
     assert predicted.shape == (3, masks_pred[0].shape[1], encoder.embed_dim)
+
+
+def test_scatter_average_averages_collisions():
+    from lens_lejepa.utils import scatter_average
+
+    values = torch.tensor([[1.0, 3.0, 5.0]])
+    index = torch.tensor([[0, 0, 2]])
+    out = scatter_average(values, index, size=3)
+    assert torch.allclose(out, torch.tensor([[2.0, 0.0, 5.0]]))
+
+
+def test_scatter_average_is_order_independent_and_conserves_the_sum():
+    from lens_lejepa.utils import scatter_average
+
+    values = torch.tensor([[1.0, 3.0, 5.0, 7.0]])
+    index = torch.tensor([[0, 0, 2, 2]])
+    forward = scatter_average(values, index, size=3)
+    backward = scatter_average(values.flip(1), index.flip(1), size=3)
+    assert torch.allclose(forward, backward)
+    # every source still contributes: count-weighted bins sum to the sources' total
+    count = torch.tensor([[2.0, 0.0, 2.0]])
+    assert (forward * count).sum() == pytest.approx(values.sum())
+
+
+def test_sis_inverter_averages_colliding_pixels():
+    from lens_lejepa.models.lens_jepa import _SISInverter
+
+    inverter = _SISInverter(32, 16, dim=8, heads=2, hidden=8, activation=torch.nn.ELU, blocks=1)
+    values = torch.tensor([[1.0, 3.0, 5.0]])
+    index = torch.tensor([[0, 0, 7]])
+    out = inverter._scatter_source(values, index)
+    assert out[0, 0] == pytest.approx(2.0)  # the mean of the two colliding pixels
+    assert out[0, 7] == pytest.approx(5.0)
+    assert out[0, 1] == 0.0  # nothing landed here

@@ -15,6 +15,8 @@ import torch.nn.functional as F
 import torchvision.transforms.functional as TF
 from torch import nn
 
+from ..utils import scatter_average
+
 
 def _patchify(x: torch.Tensor, patch: int) -> torch.Tensor:
     """``b c (h p1) (w p2) -> b (h w) (p1 p2 c)``."""
@@ -282,9 +284,8 @@ def invert_lens(images: torch.Tensor, einstein_angle: torch.Tensor, min_angle: f
     bx = ((x - einstein_angle * x / r) / pixel + centre).clamp(0, n - 1).long()
     by = ((y - einstein_angle * y / r) / pixel + centre).clamp(0, n - 1).long()
     index = (bx * n + by).view(b, -1)
-    total = torch.zeros(b, n * n, device=images.device, dtype=images.dtype).scatter_add_(1, index, images.reshape(b, -1))
-    count = torch.zeros_like(total).scatter_add_(1, index, torch.ones_like(total))
-    return torch.where(count > 0, total / count.clamp_min(1), total).view(b, n, n)
+    out = scatter_average(images.reshape(b, -1), index, n * n)
+    return out.view(b, n, n)
 
 
 class _PhysicsEncoder(nn.Module):
