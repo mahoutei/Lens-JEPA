@@ -21,3 +21,6 @@ htmlcov/
 
 # WSL / Windows NTFS alternate-data-stream exports
 *:Zone.Identifier
+
+# superpowers scratch workspace
+.superpowers/
