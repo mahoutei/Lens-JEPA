@@ -1,13 +1,20 @@
 """SIGReg: sketched isotropic Gaussian regularisation (Balestriero & LeCun, 2025).
 
 The embeddings are projected onto random unit directions ("slices"). For each
-slice an Epps-Pulley statistic compares the empirical characteristic function
-with that of a standard normal. Keeping every 1-D projection Gaussian keeps
-the whole embedding distribution close to an isotropic Gaussian, which is what
-stops the teacher-free objective from collapsing.
+slice the Epps-Pulley statistic
 
-Follows the reference implementation at github.com/galilai-group/lejepa
-(single-process version).
+    T = N * sum_t w(t) * ((cos_mean(t) - phi(t))**2 + sin_mean(t)**2)
+
+compares the empirical characteristic function with that of a standard normal.
+Keeping every 1-D projection Gaussian keeps the whole embedding distribution
+close to an isotropic Gaussian, which is what stops the teacher-free objective
+from collapsing.
+
+This follows the reference implementation at github.com/galilai-group/lejepa
+(``lejepa/univariate/epps_pulley.py``, single-process version) exactly:
+the trapezoid weights are multiplied by ``phi(t)`` and the statistic is
+multiplied by the sample count N, which is part of the Epps-Pulley statistic
+itself and not a batch-size artefact. Do not "normalise" either one away.
 """
 
 from __future__ import annotations
@@ -18,7 +25,12 @@ from torch import nn
 
 
 class EppsPulley(nn.Module):
-    """Univariate Epps-Pulley test statistic against N(0, 1)."""
+    """Univariate Epps-Pulley test statistic against N(0, 1).
+
+    ``weights`` already include the standard normal characteristic function
+    ``phi(t) = exp(-t^2/2)``; the returned statistic is multiplied by the
+    number of samples. Both match the reference LeJEPA implementation.
+    """
 
     def __init__(self, t_max: float = 3.0, n_points: int = 17) -> None:
         super().__init__()

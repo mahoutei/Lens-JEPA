@@ -111,3 +111,28 @@ def test_finetune_and_evaluate(fake_root, tmp_path, task, backbone, adaptation):
     for key, value in summary["test"].items():
         if isinstance(value, float):
             assert reloaded[key] == pytest.approx(value, rel=1e-5, abs=1e-6), key
+
+
+def test_sigreg_scales_with_the_sample_count_like_the_reference():
+    """The reference LeJEPA statistic is T = N * sum_t w(t) * (dcos^2 + dsin^2)."""
+    from lens_lejepa.ssl.sigreg import EppsPulley
+
+    test = EppsPulley(t_max=3.0, n_points=17)
+    x = torch.randn(64, 4)
+    doubled = test(x.repeat(2, 1))
+    single = test(x)
+    # The mean over samples is unchanged by duplicating them, so the statistic
+    # must scale exactly with N. A missing N factor would leave it unchanged.
+    assert doubled == pytest.approx(2.0 * single, rel=1e-5)
+
+
+def test_sigreg_weights_include_the_standard_normal_characteristic_function():
+    """Upstream folds phi(t) into the trapezoid weights; keep it that way."""
+    from lens_lejepa.ssl.sigreg import EppsPulley
+
+    test = EppsPulley(t_max=3.0, n_points=17)
+    dt = 3.0 / (17 - 1)
+    trapezoid = torch.full((17,), 2 * dt)
+    trapezoid[[0, -1]] = dt
+    assert torch.allclose(test.weights, trapezoid * test.phi)
+    assert torch.allclose(test.phi, torch.exp(-0.5 * test.t.square()))
