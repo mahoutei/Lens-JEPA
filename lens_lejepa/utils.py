@@ -56,11 +56,22 @@ def _json_default(value: Any) -> Any:
 
 
 def append_csv(path: Path, row: dict[str, Any]) -> None:
-    """Append one row, rewriting the header if new columns appear."""
-    rows = []
+    """Append one row, rewriting the header if new columns appear.
+
+    Epochs increase monotonically within a run, so a row whose ``epoch`` is not
+    greater than the highest epoch already in the file belongs to a *new* run
+    with the same name: the file is replaced rather than appended to, so
+    re-running a config never mixes two runs' metrics in one file.
+    """
+    rows: list[dict[str, Any]] = []
     if path.exists():
         with path.open(newline="") as handle:
             rows = list(csv.DictReader(handle))
+    epoch = row.get("epoch")
+    if rows and epoch is not None:
+        previous = [float(r["epoch"]) for r in rows if r.get("epoch") not in (None, "")]
+        if previous and float(epoch) <= max(previous):
+            rows = []
     rows.append({key: value for key, value in row.items() if np.isscalar(value) or value is None})
     fieldnames = list(dict.fromkeys(key for r in rows for key in r))
     with path.open("w", newline="") as handle:

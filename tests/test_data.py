@@ -76,3 +76,26 @@ def test_shift_image_and_training_jitter(fake_root):
     assert shifted[0, 1, 0] == image[0, 0, 1] and shifted[0, 0, 0] == image.min()
     jittered = LensClassificationDataset(fake_root, 32, jitter=2)
     assert jittered[0]["image"].shape == (1, 32, 32)
+
+
+def test_append_csv_does_not_mix_two_runs(tmp_path):
+    from lens_lejepa.utils import append_csv
+
+    path = tmp_path / "metrics.csv"
+    append_csv(path, {"epoch": 1, "loss": 1.0})
+    append_csv(path, {"epoch": 2, "loss": 0.5})
+    append_csv(path, {"epoch": 1, "loss": 9.0})  # a new run starts at epoch 1
+    text = path.read_text()
+    assert text.count("\n") == 2  # header + one row
+    assert "9.0" in text
+    assert "0.5" not in text
+
+
+def test_append_csv_appends_a_resumed_run(tmp_path):
+    from lens_lejepa.utils import append_csv
+
+    path = tmp_path / "metrics.csv"
+    append_csv(path, {"epoch": 1, "loss": 1.0})
+    append_csv(path, {"epoch": 2, "loss": 0.5})
+    append_csv(path, {"epoch": 3, "loss": 0.25})  # a resumed run continues
+    assert path.read_text().count("\n") == 4
