@@ -164,3 +164,17 @@ def test_collect_results_keeps_the_known_task_columns(tmp_path, capsys, monkeypa
     collect_results.main()
     printed = capsys.readouterr().out
     assert "| run | backbone | adaptation | train | shots | test | accuracy | mean_auroc | macro_f1 |" in printed
+
+
+def test_collect_results_does_not_report_the_epoch_of_an_unknown_task(tmp_path, capsys, monkeypatch):
+    import sys
+
+    collect_results = _load_collect_results()
+    _write_summary(tmp_path, "einstein_radius", "vit_small", "rslora", {"epoch": 7, "accuracy": 0.5})
+    rows = collect_results.collect(tmp_path)
+    assert "epoch" not in rows[0]
+    monkeypatch.setattr(sys, "argv", ["collect_results.py", str(tmp_path)])
+    collect_results.main()
+    printed = capsys.readouterr().out
+    assert "| accuracy |" in printed
+    assert "epoch" not in printed

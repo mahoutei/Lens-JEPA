@@ -22,8 +22,8 @@ COLUMNS = {
     "super_resolution": ["psnr", "ssim", "mae", "mse"],
 }
 
-# Row keys that are always present, whatever the task reports.
-FIXED_KEYS = ("task", "run", "backbone", "adaptation", "train", "shots", "test")
+# Row keys that are never metrics: they identify the run or say which epoch it is.
+FIXED_KEYS = ("task", "run", "backbone", "adaptation", "train", "shots", "test", "epoch")
 
 
 def _columns(task: str, test: dict) -> list[str]:
@@ -33,7 +33,7 @@ def _columns(task: str, test: dict) -> list[str]:
         return known
     return sorted(
         key for key, value in test.items()
-        if isinstance(value, (int, float)) and not isinstance(value, bool)
+        if key not in FIXED_KEYS and isinstance(value, (int, float)) and not isinstance(value, bool)
     )
 
 
