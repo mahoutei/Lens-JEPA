@@ -148,3 +148,38 @@ def test_collapsed_pretraining_leaves_no_loadable_checkpoint(fake_root, tmp_path
         pretrain(config)
     run_dir = Path(config.output_dir) / "pretrain" / config.method / config.run_name
     assert not (run_dir / "last_pretrain.pt").exists()
+
+
+def test_grad_accum_scales_the_window_by_its_actual_size(fake_root, tmp_path, monkeypatch):
+    """A window holding one gradient must not be scaled as if it held two."""
+    recorded = []
+
+    class RecordingAdamW(torch.optim.AdamW):
+        def step(self, *args, **kwargs):
+            recorded.append(
+                sum(
+                    float(p.grad.abs().sum())
+                    for group in self.param_groups
+                    for p in group["params"]
+                    if p.grad is not None
+                )
+            )
+            return super().step(*args, **kwargs)
+
+    monkeypatch.setattr(torch.optim, "AdamW", RecordingAdamW)
+
+    def run(grad_accum, name):
+        config = FinetuneConfig(
+            task="classification", data_root=str(fake_root.parent), train_dataset=fake_root.name,
+            test_dataset=None, image_size=32, backbone="vit_tiny", adaptation="linear_probe",
+            epochs=1, batch_size=4, grad_accum=grad_accum, max_steps_per_epoch=1,
+            val_interval=1, workers=0, device="cpu", output_dir=str(tmp_path), run_name=name,
+        )
+        finetune(config)
+
+    run(1, "single")
+    run(2, "accumulated")
+    assert len(recorded) == 2
+    # Both runs see the same first batch, so the gradient must be identical:
+    # the one-batch window of the second run holds one gradient, not two.
+    assert recorded[1] == pytest.approx(recorded[0], rel=1e-5)

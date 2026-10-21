@@ -110,6 +110,7 @@ def finetune(config: FinetuneConfig) -> Path:
             model.train()
             losses = []
             optimizer.zero_grad(set_to_none=True)
+            window = 0
             for step, batch in enumerate(tqdm(train_loader, total=steps, desc=f"{task.name} {epoch}/{config.epochs}", leave=False), start=1):
                 if step > steps:
                     break
@@ -117,10 +118,19 @@ def finetune(config: FinetuneConfig) -> Path:
                 with _autocast(config, device):
                     loss = task.loss(model(*task.model_input(batch)), batch)
                 check_finite("training loss", loss)
-                (loss / config.grad_accum).backward()
+                loss.backward()
+                window += 1
                 if step % config.grad_accum == 0 or step == steps:
+                    # Average over the gradients actually accumulated, so a short
+                    # final window counts as much as a full one.
+                    scale = 1.0 / window
+                    for group in optimizer.param_groups:
+                        for param in group["params"]:
+                            if param.grad is not None:
+                                param.grad.mul_(scale)
                     optimizer.step()
                     optimizer.zero_grad(set_to_none=True)
+                    window = 0
                 losses.append(loss.item())
             scheduler.step()
 
