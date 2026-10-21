@@ -15,10 +15,10 @@
 - Interpreter: `~/.local/bin/python3.12` (3.12.14). Virtualenv at `.venv`, created with `uv venv --python 3.12`. Run everything as `.venv/bin/python -m pytest`.
 - The core package must keep working on Python ≥ 3.10 and must **not** gain a dependency on `dlens`, `pydantic-ai`, or any agent library. Those arrive in the second plan (`docs/superpowers/plans/2026-10-21-dlens-agent-loop.md`).
 - Every behaviour change ships with a test that fails before the change and passes after it.
-- **Exactly one task changes numerical behaviour:** Task 1 (the SIS scatter). It alters the `lens_jepa` encoder's outputs, so README:153 (`lens_jepa` rows: 0.8298 → 0.8309, Sym 0.8660 → 0.8670) may need re-measuring after this plan. Task 2 explicitly preserves `blocks=1` behaviour; Task 3 changes no behaviour at all.
+- **Two tasks change numerical behaviour:** Task 1 (the SIS scatter) and Task 8 (the pretraining batch loop). Task 1 alters the `lens_jepa` encoder's outputs, so README:153 (`lens_jepa` rows: 0.8298 → 0.8309, Sym 0.8660 → 0.8670) may need re-measuring after this plan. Task 8 stops fetching the batch past the epoch limit, which changes the RNG consumption at the epoch boundary and advances the masked methods' block-mask sampler one step less per epoch. Task 2 explicitly preserves `blocks=1` behaviour; Task 3 changes no behaviour at all.
 - Public API changes are additive: existing names keep working. Where a private helper becomes public, keep the private name as an alias.
 - Commit after every task. Use Conventional Commit prefixes already in use in this repo: `feat:`, `fix:`, `test:`, `docs:`, `chore:`.
-- No task needs network access. The suite is CPU-only and must stay under ~60 s.
+- No task needs network access. The suite is CPU-only and takes ~155 s.
 
 ## Review Focus
 
