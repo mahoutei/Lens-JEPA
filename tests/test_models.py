@@ -121,6 +121,31 @@ def test_sis_inverter_averages_colliding_pixels():
     assert out[0, 1] == 0.0  # nothing landed here
 
 
+def test_sis_inverter_forward_averages_colliding_pixels():
+    """forward() must average the source pixels that land on the same target."""
+    from lens_lejepa.models.lens_jepa import _PatchDecoder, _SISInverter
+
+    inverter = _SISInverter(8, 4, dim=8, heads=2, hidden=8, activation=torch.nn.ELU, blocks=1,
+                            pixel_scale=0.1, k_min=0.0, k_max=0.2).eval()
+    decoder = next(m for m in inverter.modules() if isinstance(m, _PatchDecoder)).patch_decoder
+    with torch.no_grad():
+        decoder.weight.zero_()
+        decoder.bias.zero_()  # sigmoid(0) = 0.5, so k = 0.0 + 0.2 * 0.5 = 0.1
+    # k = 0.1 moves every pixel one source pixel towards the centre: the eight
+    # pixels around the centre all land on the centre pixel (4, 4), and only
+    # (0, 4) lands on (1, 4).
+    images = torch.zeros(1, 8, 8)
+    images[0, 0, 4] = 4.0
+    ring = [(3, 3), (3, 4), (3, 5), (4, 3), (4, 5), (5, 3), (5, 4), (5, 5)]
+    for value, (row, col) in enumerate(ring, start=1):
+        images[0, row, col] = float(value)
+    with torch.no_grad():
+        out = inverter(images, torch.zeros(1, 4, 8))  # a 2x2 grid of tokens; the decoder ignores them
+    # the mean of the eight contributors is 4.5, while winner-take-all would keep
+    # one of them, so the ratio to the single contributor must be the ratio of 4.5 to 4.0
+    assert out[0, 4, 4].item() / out[0, 1, 4].item() == pytest.approx(4.5 / 4.0)
+
+
 def test_lensiformer_stack_trains_every_block():
     """A stack of blocks must give every block a gradient, not only the last."""
     from lens_lejepa.models import Lensiformer
