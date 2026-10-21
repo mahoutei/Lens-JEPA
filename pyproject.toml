@@ -19,6 +19,16 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=7"]
+# The DLens agent framework itself is NOT listed here: it is not published on
+# PyPI and its own dependency set (llama-cpp-python, numba, mcp, pandas) is not
+# needed for the planner/report path. Run scripts/install_agent_deps.sh, which
+# installs it from a pinned commit with --no-deps.
+# The agent extra needs Python >= 3.12, the version DLens itself requires.
+agent = [
+    "pydantic-ai>=2.0",
+    "loguru>=0.7",
+    "python-dotenv>=1.0",
+]
 
 [project.scripts]
 lens-lejepa = "lens_lejepa.cli:main"

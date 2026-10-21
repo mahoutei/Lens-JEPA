@@ -225,3 +225,18 @@ def test_finetune_config_rejects_invalid_values():
         FinetuneConfig(adaptation="typo")
     with pytest.raises(ValueError, match="shots"):
         FinetuneConfig(shots=0)
+
+
+def test_load_yaml_with_overrides_returns_a_plain_dict(tmp_path):
+    from lens_lejepa.config import load_yaml_with_overrides
+
+    path = tmp_path / "campaign.yaml"
+    path.write_text("name: demo\nnested:\n  value: 1\n")
+    data = load_yaml_with_overrides(path, ["nested.value=2", "extra=3"])
+    assert data == {"name": "demo", "nested": {"value": 2}, "extra": 3}
+
+
+def test_build_trained_model_is_public():
+    from lens_lejepa.engine import build_trained_model
+
+    assert callable(build_trained_model)

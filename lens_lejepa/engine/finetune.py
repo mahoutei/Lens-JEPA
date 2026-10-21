@@ -58,7 +58,8 @@ def _is_better(task: Task, value: float, best: float | None) -> bool:
     return value > best if task.higher_is_better else value < best
 
 
-def _build_trained_model(checkpoint: dict, device: torch.device) -> tuple[Task, nn.Module, FinetuneConfig]:
+def build_trained_model(checkpoint: dict, device: torch.device) -> tuple[Task, nn.Module, FinetuneConfig]:
+    """Rebuild the task and model of a saved downstream checkpoint."""
     config = FinetuneConfig(**checkpoint["config"])
     config.pretrained = None  # the adapted weights are already inside the checkpoint
     task = build_task(config)
@@ -68,11 +69,15 @@ def _build_trained_model(checkpoint: dict, device: torch.device) -> tuple[Task, 
     return task, model.to(device), config
 
 
+# The previous private name, kept so no existing caller breaks.
+_build_trained_model = build_trained_model
+
+
 def evaluate(checkpoint_path: str | Path, test_root: str, device_name: str = "cuda", batch_size: int | None = None, workers: int = 8) -> dict[str, Any]:
     """Held-out evaluation of a saved downstream checkpoint on ``test_root``."""
     device = resolve_device(device_name)
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-    task, model, config = _build_trained_model(checkpoint, device)
+    task, model, config = build_trained_model(checkpoint, device)
     loader = make_loader(task.build_test_dataset(test_root), batch_size or config.batch_size, shuffle=False, workers=workers)
     result = run_inference(task, model, loader, device)
     metrics = {"test_root": str(test_root), "checkpoint": str(checkpoint_path), "epoch": checkpoint["epoch"], **result["metrics"]}

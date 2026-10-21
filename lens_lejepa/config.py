@@ -135,14 +135,25 @@ def _set_nested(data: dict, keys: list[str], value: Any) -> None:
     data[keys[-1]] = value
 
 
-def load_config(cls: type[C], path: str | Path | None = None, overrides: list[str] | None = None) -> C:
-    """Build ``cls`` from an optional YAML file plus ``key=value`` overrides."""
+def load_yaml_with_overrides(path: str | Path | None = None, overrides: list[str] | None = None) -> dict[str, Any]:
+    """Read a YAML file into a dict and apply ``key=value`` overrides to it.
+
+    Values are parsed as YAML, so ``shots=100``, ``shots=null`` and
+    ``rank_schedule=[8,16]`` all work. Overrides may address nested keys with
+    a dot, e.g. ``objective.rings=4``.
+    """
     data: dict[str, Any] = {}
     if path is not None:
         data = yaml.safe_load(Path(path).read_text()) or {}
     for item in overrides or []:
         keys, value = _parse_override(item)
         _set_nested(data, keys, value)
+    return data
+
+
+def load_config(cls: type[C], path: str | Path | None = None, overrides: list[str] | None = None) -> C:
+    """Build ``cls`` from an optional YAML file plus ``key=value`` overrides."""
+    data = load_yaml_with_overrides(path, overrides)
     known = {f.name for f in dataclasses.fields(cls)}
     unknown = set(data) - known
     if unknown:
