@@ -18,5 +18,7 @@ jobs:
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install numpy scikit-learn pyyaml tqdm pytest pydantic
           pip install --no-deps -e .
+      - name: Install the agent dependencies
+        run: bash scripts/install_agent_deps.sh
       - name: Run the test suite
         run: pytest -q
