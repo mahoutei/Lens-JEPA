@@ -183,3 +183,34 @@ def test_grad_accum_scales_the_window_by_its_actual_size(fake_root, tmp_path, mo
     # Both runs see the same first batch, so the gradient must be identical:
     # the one-batch window of the second run holds one gradient, not two.
     assert recorded[1] == pytest.approx(recorded[0], rel=1e-5)
+
+
+def test_pretrain_does_not_fetch_a_batch_past_the_epoch_limit(fake_root, tmp_path, monkeypatch):
+    import importlib
+
+    # The engine shadows the submodule name with the function it exports, so the
+    # module has to be fetched from the import system, not from the package.
+    pretrain_module = importlib.import_module("lens_lejepa.engine.pretrain")
+
+    calls = []
+    original = pretrain_module.UnlabelledLensDataset
+
+    class Counting(original):
+        def __getitem__(self, index):
+            calls.append(index)
+            return super().__getitem__(index)
+
+    monkeypatch.setattr(pretrain_module, "UnlabelledLensDataset", Counting)
+    config = _pretrain_config(fake_root, tmp_path)
+    config.epochs = 1
+    config.max_steps_per_epoch = 1
+    config.batch_size = 4
+    pretrain(config)
+    assert len(calls) == 4  # exactly one batch of four, not two
+
+
+def test_pretrain_rejects_an_epoch_without_steps(fake_root, tmp_path):
+    config = _pretrain_config(fake_root, tmp_path)
+    config.max_steps_per_epoch = 0
+    with pytest.raises(RuntimeError, match="no training steps"):
+        pretrain(config)

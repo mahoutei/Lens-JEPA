@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import copy
 import math
+from itertools import islice
 from pathlib import Path
 
 import numpy as np
@@ -105,6 +106,8 @@ def pretrain(config: PretrainConfig, resume: str | Path | None = None) -> Path:
     setup = _Setup(config, device, dataset)
     loader = setup.loader
     steps_per_epoch = len(loader) if config.max_steps_per_epoch is None else min(len(loader), config.max_steps_per_epoch)
+    if steps_per_epoch == 0:
+        raise RuntimeError("An epoch has no training steps: the dataset is empty or max_steps_per_epoch is 0.")
     trained = [setup.encoder, setup.head]
     optimizer = torch.optim.AdamW(_param_groups(*trained), lr=config.lr, weight_decay=config.weight_decay)
     total_steps = config.epochs * steps_per_epoch
@@ -135,9 +138,7 @@ def pretrain(config: PretrainConfig, resume: str | Path | None = None) -> Path:
         sums: dict[str, float] = {}
         grad_norms: list[float] = []
         progress = tqdm(loader, total=steps_per_epoch, desc=f"pretrain {epoch}/{config.epochs}", leave=False)
-        for step, batch in enumerate(progress, start=1):
-            if step > steps_per_epoch:
-                break
+        for step, batch in enumerate(islice(progress, steps_per_epoch), start=1):
             lr_schedule.step()
             wd_schedule.step()
             with autocast:
