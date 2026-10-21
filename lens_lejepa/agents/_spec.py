@@ -70,7 +70,7 @@ class CampaignSpec(BaseModel):
     patience: int = 3
     min_val_delta: float = 0.005
     min_val_above_chance: float = 0.05
-    encoders: list[EncoderSpec] = [EncoderSpec(name="vit_small", backbone="vit_small")]
+    encoders: list[EncoderSpec] = [EncoderSpec(name="lens_lejepa", backbone="vit_small"), EncoderSpec(name="lejepa", backbone="vit_small")]
     initial: DownstreamSpec = DownstreamSpec()
 
     def encoder(self, name: str) -> EncoderSpec:

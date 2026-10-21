@@ -50,6 +50,12 @@ def test_an_encoder_outside_the_pool_is_rejected():
         campaign.encoder("nope")
 
 
+def test_the_default_campaign_starts_inside_its_own_pool():
+    campaign = CampaignSpec()
+    assert campaign.initial.encoder in [item.name for item in campaign.encoders]
+    assert campaign.encoder(campaign.initial.encoder).name == campaign.initial.encoder
+
+
 def test_the_campaign_exposes_its_pool_and_run_names():
     campaign = CampaignSpec(
         name="demo",

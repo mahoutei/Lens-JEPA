@@ -220,6 +220,12 @@ and promote _build_trained_model to build_trained_model."
 
 ### Task 2: The campaign specs and the strict update validation
 
+**Note:** the default encoder pool is the spec's resolved `{lens_lejepa, lejepa}`
+(`docs/superpowers/specs/2026-10-21-dlens-agent-loop-design.md`, "May the planner switch
+encoders?"). The first draft of this task's snippet said `vit_small` only, which contradicted
+`DownstreamSpec.encoder = "lens_lejepa"` and left the default campaign's own initial spec naming
+an encoder outside its pool. The snippet below is corrected to the spec's pool.
+
 **Files:**
 - Create: `lens_lejepa/agents/__init__.py`
 - Create: `lens_lejepa/agents/_spec.py`
@@ -383,7 +389,7 @@ class CampaignSpec(BaseModel):
     patience: int = 3
     min_val_delta: float = 0.005
     min_val_above_chance: float = 0.05
-    encoders: list[EncoderSpec] = [EncoderSpec(name="vit_small", backbone="vit_small")]
+    encoders: list[EncoderSpec] = [EncoderSpec(name="lens_lejepa", backbone="vit_small"), EncoderSpec(name="lejepa", backbone="vit_small")]
     initial: DownstreamSpec = DownstreamSpec()
 
     def encoder(self, name: str) -> EncoderSpec:
