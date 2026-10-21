@@ -14,6 +14,7 @@ from typing import Any, TypeVar
 
 import yaml
 
+from .models.adapters import canonical_adapter_name
 from .ssl.masked_jepa import MASKED_METHODS, MaskedJEPAConfig
 from .ssl.objective import ObjectiveConfig
 
@@ -105,6 +106,17 @@ class FinetuneConfig:
     output_dir: str = "runs"
     run_name: str | None = None
     max_steps_per_epoch: int | None = None
+
+    def __post_init__(self) -> None:
+        """Reject values that would only fail once a run has already started."""
+        if self.val_interval <= 0:
+            raise ValueError(f"val_interval must be positive, got {self.val_interval}.")
+        if self.shots is not None and self.shots <= 0:
+            raise ValueError(f"shots must be a positive number of images per class, got {self.shots}.")
+        if self.adaptation == "layerwise" and not self.rank_schedule:
+            raise ValueError("adaptation='layerwise' needs a rank_schedule, e.g. [8, 16, 32, 64].")
+        if self.adaptation not in ("full", "linear_probe"):
+            canonical_adapter_name(self.adaptation)  # raises on an unknown adapter name
 
 
 C = TypeVar("C", PretrainConfig, FinetuneConfig)

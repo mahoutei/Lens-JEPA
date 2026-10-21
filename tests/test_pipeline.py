@@ -214,3 +214,14 @@ def test_pretrain_rejects_an_epoch_without_steps(fake_root, tmp_path):
     config.max_steps_per_epoch = 0
     with pytest.raises(RuntimeError, match="no training steps"):
         pretrain(config)
+
+
+def test_finetune_config_rejects_invalid_values():
+    with pytest.raises(ValueError, match="val_interval"):
+        FinetuneConfig(val_interval=0)
+    with pytest.raises(ValueError, match="rank_schedule"):
+        FinetuneConfig(adaptation="layerwise")
+    with pytest.raises(ValueError, match="Unknown adapter"):
+        FinetuneConfig(adaptation="typo")
+    with pytest.raises(ValueError, match="shots"):
+        FinetuneConfig(shots=0)
