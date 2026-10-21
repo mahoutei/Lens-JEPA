@@ -141,3 +141,130 @@ def test_the_backends_train_and_score_the_validation_split(fake_root, tmp_path):
     assert scored.accuracy == pytest.approx(
         sum(p == t for p, t in zip(scored.predictions, scored.true_labels)) / scored.num_samples
     )
+
+
+class ScriptedPlanner:
+    """Emits a fixed decision per iteration; deterministic and offline."""
+
+    name = "scripted"
+
+    def __init__(self, decisions):
+        self.decisions = decisions
+
+    async def decide(self, state):
+        from dlens.schemas._experiment import PlannerDecision
+
+        index = state.current_iteration
+        payload = self.decisions[index] if index < len(self.decisions) else {
+            "action": "report", "rationale": "scripted budget exhausted", "updated_params": {}
+        }
+        return PlannerDecision(**payload)
+
+
+def _fake_run(accuracy: float, collapsed: bool = False):
+    from dlens.schemas._downstream import AnalysisResult
+
+    from lens_lejepa.agents._loop import LensJepaRun
+
+    return LensJepaRun(
+        iteration=0,
+        spec=DownstreamSpec(),
+        analysis_result=AnalysisResult(
+            accuracy=accuracy,
+            confusion_matrix=[[1, 0], [0, 1]],
+            per_class={"a": {"precision": 1.0, "recall": 1.0, "f1": 1.0, "support": 1.0}},
+            summary="synthetic",
+        ),
+        collapsed=collapsed,
+    )
+
+
+def _tiny_campaign(fake_root, tmp_path, **kwargs):
+    defaults = dict(
+        name="demo",
+        data_root=str(fake_root.parent),
+        train_dataset=fake_root.name,
+        test_dataset=fake_root.name,
+        image_size=32,
+        device="cpu",
+        bf16=False,
+        workers=0,
+        output_dir=str(tmp_path / "runs"),
+        encoders=[{"name": "vit_small", "backbone": "vit_tiny"}],
+        initial=DownstreamSpec(encoder="vit_small", adaptation="linear_probe", epochs=10, batch_size=8),
+    )
+    defaults.update(kwargs)
+    return CampaignSpec(**defaults)
+
+
+def test_the_best_run_is_the_best_validation_accuracy():
+    from lens_lejepa.agents._loop import select_best_run
+
+    runs = [_fake_run(0.5), _fake_run(0.9), _fake_run(0.7)]
+    assert select_best_run(runs) is runs[1]
+
+
+def test_a_collapsed_run_is_never_the_best():
+    from lens_lejepa.agents._loop import select_best_run
+
+    runs = [_fake_run(0.5), _fake_run(0.99, collapsed=True)]
+    assert select_best_run(runs) is runs[0]
+
+
+def test_the_offline_planner_decides_without_a_network():
+    import asyncio
+
+    from dlens.schemas._experiment import PlannerAction
+
+    from lens_lejepa.agents._loop import LensJepaState, build_planner, build_planner_prompt
+
+    campaign = CampaignSpec(encoders=[{"name": "vit_small", "backbone": "vit_tiny"}])
+    prompt = build_planner_prompt(campaign)
+    assert "vit_small" in prompt  # the encoder pool the planner may choose from
+    assert "shots" in prompt  # the fields it may not change
+    decision = asyncio.run(build_planner(campaign).decide(LensJepaState(hypothesis="a campaign")))
+    assert decision.action == PlannerAction.TRAIN
+
+
+def test_the_loop_runs_offline_and_records_every_iteration(fake_root, tmp_path):
+    import asyncio
+
+    from lens_lejepa.agents._backends import LensJepaInferBackend, LensJepaTrainBackend
+    from lens_lejepa.agents._loop import run_campaign
+
+    campaign = _tiny_campaign(fake_root, tmp_path, max_iterations=2)
+    planner = ScriptedPlanner([
+        {"action": "train", "rationale": "try a different adapter", "updated_params": {"adaptation": "lora"}},
+        {"action": "report", "rationale": "done", "updated_params": {}},
+    ])
+    result = asyncio.run(run_campaign(
+        campaign, planner,
+        train_backend=LensJepaTrainBackend(campaign),
+        infer_backend=LensJepaInferBackend(campaign),
+    ))
+    assert len(result.state.runs) == 2
+    assert result.state.runs[0].spec.adaptation == "linear_probe"
+    assert result.state.runs[1].spec.adaptation == "lora"
+    assert result.best_run is not None
+    assert result.best_checkpoint.endswith("best.pt")
+
+
+def test_a_rejected_change_is_recorded_and_the_campaign_continues(fake_root, tmp_path):
+    import asyncio
+
+    from lens_lejepa.agents._backends import LensJepaInferBackend, LensJepaTrainBackend
+    from lens_lejepa.agents._loop import run_campaign
+
+    campaign = _tiny_campaign(fake_root, tmp_path, max_iterations=2)
+    planner = ScriptedPlanner([
+        {"action": "train", "rationale": "typo", "updated_params": {"learning_rate": 1e-3}},
+        {"action": "report", "rationale": "done", "updated_params": {}},
+    ])
+    result = asyncio.run(run_campaign(
+        campaign, planner,
+        train_backend=LensJepaTrainBackend(campaign),
+        infer_backend=LensJepaInferBackend(campaign),
+    ))
+    assert any("learning_rate" in (run.rejection or "") for run in result.state.runs)
+    # The rejected change must not have been applied.
+    assert result.state.runs[1].spec.lr == campaign.initial.lr

@@ -5,7 +5,12 @@
 # none of which the planner/report path uses: dlens/agents/_models.py imports
 # llama_cpp lazily. llama-cpp-python additionally needs cmake and a C++
 # compiler at install time. So DLens is installed from a pinned commit with
-# --no-deps, and only the three direct dependencies are added.
+# --no-deps, and only the direct dependencies are added.
+#
+# mcp is the exception: dlens/tools/__init__.py imports the mcp 1.x API
+# (mcp.server.fastmcp), which mcp 2.x removed, and the campaign loop needs
+# dlens.tools._analysis.compute_analysis. pydantic-ai's mcp extra would pull
+# mcp 2.x, so the version is pinned here.
 #
 #   bash scripts/install_agent_deps.sh
 set -euo pipefail
@@ -33,7 +38,8 @@ else
 fi
 
 install --no-deps "git+https://github.com/ML4SCI/DeepLense-AI-Scientist.git@${DLENS_SHA}"
-install "pydantic-ai>=2.0" "loguru>=0.7" "python-dotenv>=1.0"
+install "pydantic-ai>=2.0" "loguru>=0.7" "python-dotenv>=1.0" "mcp<2"
 
 "$PY" -c "import dlens; print('dlens ok')"
 "$PY" -c "from dlens.agents._experiment_planner import ExperimentPlanner; print('planner ok')"
+"$PY" -c "from dlens.tools._analysis import compute_analysis; print('analysis ok')"
