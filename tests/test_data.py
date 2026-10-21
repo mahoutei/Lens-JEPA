@@ -99,3 +99,68 @@ def test_append_csv_appends_a_resumed_run(tmp_path):
     append_csv(path, {"epoch": 2, "loss": 0.5})
     append_csv(path, {"epoch": 3, "loss": 0.25})  # a resumed run continues
     assert path.read_text().count("\n") == 4
+
+
+def _load_collect_results():
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parent.parent / "scripts" / "collect_results.py"
+    spec = importlib.util.spec_from_file_location("collect_results", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _write_summary(root, task, backbone, adaptation, metrics):
+    import json
+
+    run = root / task / f"{backbone}_{adaptation}" / "run"
+    run.mkdir(parents=True)
+    (run / "config.json").write_text(json.dumps({
+        "task": task, "backbone": backbone, "adaptation": adaptation,
+        "train_dataset": "Model_II", "shots": None,
+    }))
+    (run / "summary.json").write_text(json.dumps({
+        "test": {"test_root": "/data/Model_II_test", **metrics},
+    }))
+    return run
+
+
+def test_collect_results_reports_an_unknown_task(tmp_path):
+    collect_results = _load_collect_results()
+    _write_summary(tmp_path, "einstein_radius", "vit_small", "rslora", {"accuracy": 0.5, "mae": 0.1})
+    rows = collect_results.collect(tmp_path)
+    assert len(rows) == 1
+    assert rows[0]["task"] == "einstein_radius"
+    assert rows[0]["adaptation"] == "rslora"
+
+
+def test_collect_results_labels_the_lens_jepa_encoder(tmp_path):
+    collect_results = _load_collect_results()
+    _write_summary(tmp_path, "classification", "lens_jepa", "lora", {"accuracy": 0.83})
+    rows = collect_results.collect(tmp_path)
+    assert rows[0]["adaptation"] == "lora"
+
+
+def test_collect_results_prints_an_unknown_task_table(tmp_path, capsys, monkeypatch):
+    import sys
+
+    collect_results = _load_collect_results()
+    _write_summary(tmp_path, "einstein_radius", "vit_small", "rslora", {"accuracy": 0.5, "mae": 0.1})
+    monkeypatch.setattr(sys, "argv", ["collect_results.py", str(tmp_path)])
+    collect_results.main()
+    printed = capsys.readouterr().out
+    assert "### einstein_radius" in printed
+    assert "| accuracy | mae |" in printed
+
+
+def test_collect_results_keeps_the_known_task_columns(tmp_path, capsys, monkeypatch):
+    import sys
+
+    collect_results = _load_collect_results()
+    _write_summary(tmp_path, "classification", "vit_small", "rslora", {"accuracy": 0.83, "mean_auroc": 0.9})
+    monkeypatch.setattr(sys, "argv", ["collect_results.py", str(tmp_path)])
+    collect_results.main()
+    printed = capsys.readouterr().out
+    assert "| run | backbone | adaptation | train | shots | test | accuracy | mean_auroc | macro_f1 |" in printed
