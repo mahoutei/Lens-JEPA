@@ -96,7 +96,7 @@ def test_scatter_average_averages_collisions():
     assert torch.allclose(out, torch.tensor([[2.0, 0.0, 5.0]]))
 
 
-def test_scatter_average_is_order_independent_and_conserves_the_sum():
+def test_scatter_average_is_order_independent_and_drops_no_source():
     from lens_lejepa.utils import scatter_average
 
     values = torch.tensor([[1.0, 3.0, 5.0, 7.0]])
@@ -119,3 +119,70 @@ def test_sis_inverter_averages_colliding_pixels():
     assert out[0, 0] == pytest.approx(2.0)  # the mean of the two colliding pixels
     assert out[0, 7] == pytest.approx(5.0)
     assert out[0, 1] == 0.0  # nothing landed here
+
+
+def test_lensiformer_stack_trains_every_block():
+    """A stack of blocks must give every block a gradient, not only the last."""
+    from lens_lejepa.models import Lensiformer
+
+    model = Lensiformer(32, 16, embed_dim=32, num_heads=2, blocks=2)
+    images, distortion = torch.randn(2, 1, 32, 32), torch.rand(2, 1, 32, 32)
+    probabilities, _ = model.forward_with_source(images, distortion)
+    # the softmax output sums to one, so its *sum* carries no gradient at all
+    probabilities[:, 0].sum().backward()
+    assert model.transformer_blocks[0].mlsa.mha.in_proj_weight.grad is not None
+    assert model.transformer_blocks[1].mlsa.mha.in_proj_weight.grad is not None
+    assert model.transformer_blocks[0].mlsa.mha.in_proj_weight.grad.abs().max() > 0
+    assert model.transformer_blocks[1].mlsa.mha.in_proj_weight.grad.abs().max() > 0
+
+
+def test_lensiformer_blocks_are_chained():
+    """Block n+1 must read block n's output as its key."""
+    from lens_lejepa.models import Lensiformer
+
+    torch.manual_seed(0)
+    model = Lensiformer(32, 16, embed_dim=32, num_heads=2, blocks=2).eval()
+    seen = {}
+
+    def capture(name):
+        def hook(module, args, kwargs):
+            seen.setdefault(name, {})["key"] = kwargs.get("key")
+            seen[name]["output"] = None
+
+        return hook
+
+    outputs = {}
+
+    def forward_hook(name):
+        def hook(module, args, output):
+            outputs[name] = output
+
+        return hook
+
+    model.transformer_blocks[0].register_forward_pre_hook(capture("b0"), with_kwargs=True)
+    model.transformer_blocks[1].register_forward_pre_hook(capture("b1"), with_kwargs=True)
+    model.transformer_blocks[0].register_forward_hook(forward_hook("b0"))
+    model.transformer_blocks[1].register_forward_hook(forward_hook("b1"))
+
+    images, distortion = torch.randn(2, 1, 32, 32), torch.rand(2, 1, 32, 32)
+    with torch.no_grad():
+        model.forward_with_source(images, distortion)
+
+    assert seen["b1"]["key"] is outputs["b0"]
+
+
+def test_lensiformer_first_block_still_reads_the_distortion_tokens():
+    """The blocks=1 path must be byte-for-byte the pre-fix behaviour."""
+    from lens_lejepa.models import Lensiformer
+
+    torch.manual_seed(0)
+    model = Lensiformer(32, 16, embed_dim=32, num_heads=2, blocks=1).eval()
+    captured = {}
+    model.transformer_blocks[0].register_forward_pre_hook(
+        lambda module, args, kwargs: captured.update(key=kwargs["key"]), with_kwargs=True
+    )
+    images, distortion = torch.randn(2, 1, 32, 32), torch.rand(2, 1, 32, 32)
+    with torch.no_grad():
+        model.forward_with_source(images, distortion)
+    expected = model.tertiary_tokenizer(distortion.reshape(2, 1, 32, 32))
+    assert torch.equal(captured["key"], expected)

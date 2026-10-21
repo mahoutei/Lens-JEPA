@@ -349,9 +349,12 @@ class Lensiformer(nn.Module):
         source = source.view(b, 1, n, n)
         source_tokens = self.secondary_tokenizer(source)
         x = image_tokens
-        for block in self.transformer_blocks:
-            # Every block reads the same three token sets, as in the reference code.
-            x = block(key=distortion_tokens, value=image_tokens, query=source_tokens)
+        for index, block in enumerate(self.transformer_blocks):
+            # The first block reads the distortion tokens, exactly as before; every
+            # later block reads the previous block's output, so a stack of blocks
+            # actually trains instead of discarding all but the last one.
+            key = distortion_tokens if index == 0 else x
+            x = block(key=key, value=image_tokens, query=source_tokens)
         return self.feedforward_layer(x.reshape(b, -1)), source
 
     def forward(self, images: torch.Tensor, distortions: torch.Tensor) -> torch.Tensor:
