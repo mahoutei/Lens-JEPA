@@ -11,8 +11,10 @@ from ._loop import (
     LensJepaState,
     build_planner,
     build_planner_prompt,
+    finalize,
     run_campaign,
     select_best_run,
+    write_report,
 )
 from ._spec import CampaignSpec, DownstreamSpec, EncoderSpec, validate_delta
 
@@ -28,7 +30,9 @@ __all__ = [
     "build_finetune_config",
     "build_planner",
     "build_planner_prompt",
+    "finalize",
     "run_campaign",
     "select_best_run",
     "validate_delta",
+    "write_report",
 ]

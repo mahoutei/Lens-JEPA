@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from lens_lejepa.agents._spec import CampaignSpec, DownstreamSpec, validate_delta
+from lens_lejepa.data import CLASSES
 
 
 def test_the_planner_may_change_the_downstream_fields():
@@ -150,6 +151,7 @@ class ScriptedPlanner:
 
     def __init__(self, decisions):
         self.decisions = decisions
+        self.seen = []  # a snapshot of the state handed to each turn
 
     async def decide(self, state):
         from dlens.schemas._experiment import PlannerDecision
@@ -158,7 +160,65 @@ class ScriptedPlanner:
         payload = self.decisions[index] if index < len(self.decisions) else {
             "action": "report", "rationale": "scripted budget exhausted", "updated_params": {}
         }
+        self.seen.append(state.model_dump(mode="json"))
         return PlannerDecision(**payload)
+
+
+class ScriptedTrainBackend:
+    """Names the runs it is asked for; no model is trained."""
+
+    name = "scripted"
+
+    def __init__(self, root):
+        self.root = Path(root)
+
+    def train(self, spec, run_name):
+        from dlens.schemas._downstream import TrainResult
+
+        return TrainResult(
+            run_id=run_name,
+            weights_path=str(self.root / run_name / "best.pt"),
+            backend=self.name,
+            num_classes=len(CLASSES),
+            metrics={"val_accuracy": 0.0},
+            epochs_run=1,
+        )
+
+
+class ScriptedInferBackend:
+    """Scores the validation split with a scripted accuracy per iteration."""
+
+    name = "scripted"
+
+    def __init__(self, accuracies):
+        self.accuracies = list(accuracies)
+        self.index = 0
+
+    def infer(self, weights_path):
+        from dlens.schemas._downstream import InferResult
+
+        accuracy = self.accuracies[min(self.index, len(self.accuracies) - 1)]
+        self.index += 1
+        labels = [index % len(CLASSES) for index in range(12)]
+        correct = round(accuracy * len(labels))
+        predictions = [
+            label if position < correct else (label + 1) % len(CLASSES)
+            for position, label in enumerate(labels)
+        ]
+        probabilities = [
+            [0.9 if class_index == prediction else 0.05 for class_index in range(len(CLASSES))]
+            for prediction in predictions
+        ]
+        return InferResult(
+            run_id=Path(weights_path).parent.name,
+            num_samples=len(labels),
+            num_classes=len(CLASSES),
+            predictions=predictions,
+            probabilities=probabilities,
+            true_labels=labels,
+            accuracy=correct / len(labels),
+            backend=self.name,
+        )
 
 
 def _fake_run(accuracy: float, collapsed: bool = False):
@@ -268,3 +328,109 @@ def test_a_rejected_change_is_recorded_and_the_campaign_continues(fake_root, tmp
     assert any("learning_rate" in (run.rejection or "") for run in result.state.runs)
     # The rejected change must not have been applied.
     assert result.state.runs[1].spec.lr == campaign.initial.lr
+
+
+def test_a_collapsed_run_does_not_consume_the_patience_budget(fake_root, tmp_path):
+    """A collapse is a failed intervention the planner must react to, not a plateau."""
+    import asyncio
+
+    from lens_lejepa.agents._loop import run_campaign
+
+    campaign = _tiny_campaign(fake_root, tmp_path, max_iterations=2, patience=1)
+    planner = ScriptedPlanner([
+        {"action": "train", "rationale": "react to the collapse", "updated_params": {}},
+        {"action": "train", "rationale": "react to the collapse", "updated_params": {}},
+    ])
+    result = asyncio.run(run_campaign(
+        campaign, planner,
+        train_backend=ScriptedTrainBackend(tmp_path),
+        infer_backend=ScriptedInferBackend([0.0, 1.0]),  # the first run collapses
+    ))
+    assert result.state.runs[0].collapsed is True
+    assert len(result.state.runs) == 2  # the collapse did not end the campaign
+    assert result.best_run is result.state.runs[1]
+
+
+def test_a_run_that_does_not_improve_consumes_the_patience_budget(fake_root, tmp_path):
+    import asyncio
+
+    from lens_lejepa.agents._loop import run_campaign
+
+    campaign = _tiny_campaign(fake_root, tmp_path, max_iterations=3, patience=1)
+    planner = ScriptedPlanner([
+        {"action": "train", "rationale": "keep going", "updated_params": {}},
+        {"action": "train", "rationale": "keep going", "updated_params": {}},
+        {"action": "train", "rationale": "keep going", "updated_params": {}},
+    ])
+    result = asyncio.run(run_campaign(
+        campaign, planner,
+        train_backend=ScriptedTrainBackend(tmp_path),
+        infer_backend=ScriptedInferBackend([1.0, 0.5, 1.0]),  # the second run does not improve
+    ))
+    assert result.state.runs[0].collapsed is False
+    assert len(result.state.runs) == 2  # the flat run ended the campaign, not the budget
+
+
+def test_the_planner_sees_the_rejection_on_its_next_turn(fake_root, tmp_path):
+    import asyncio
+
+    from lens_lejepa.agents._loop import run_campaign
+
+    campaign = _tiny_campaign(fake_root, tmp_path, max_iterations=2)
+    planner = ScriptedPlanner([
+        {"action": "train", "rationale": "typo", "updated_params": {"learning_rate": 1e-3}},
+        {"action": "train", "rationale": "corrected", "updated_params": {}},
+    ])
+    asyncio.run(run_campaign(
+        campaign, planner,
+        train_backend=ScriptedTrainBackend(tmp_path),
+        infer_backend=ScriptedInferBackend([1.0, 1.0]),
+    ))
+    first, second = planner.seen
+    assert first["runs"][0]["rejection"] is None
+    assert "learning_rate" in second["runs"][0]["rejection"]
+
+
+def test_the_test_set_is_evaluated_once_and_only_after_the_loop(fake_root, tmp_path, monkeypatch):
+    import asyncio
+
+    import lens_lejepa.agents._loop as loop_module
+    from lens_lejepa.agents._backends import LensJepaInferBackend, LensJepaTrainBackend
+    from lens_lejepa.agents._loop import finalize, run_campaign
+
+    calls = []
+    monkeypatch.setattr(
+        loop_module, "evaluate",
+        lambda *args, **kwargs: calls.append(args) or {"accuracy": 0.5},
+    )
+
+    campaign = _tiny_campaign(fake_root, tmp_path, max_iterations=1)
+    result = asyncio.run(run_campaign(
+        campaign, ScriptedPlanner([]),
+        train_backend=LensJepaTrainBackend(campaign),
+        infer_backend=LensJepaInferBackend(campaign),
+    ))
+    assert calls == []  # the loop alone never evaluates the test set
+
+    payload = finalize(result, campaign)
+    assert len(calls) == 1
+    assert payload["test"]["accuracy"] == 0.5
+    assert (campaign.output_path / "campaign.json").exists()
+    assert (campaign.output_path / "campaign.md").exists()
+
+
+def test_the_report_agent_summarises_the_campaign(fake_root, tmp_path):
+    import asyncio
+
+    from lens_lejepa.agents._loop import run_campaign, write_report
+
+    campaign = _tiny_campaign(fake_root, tmp_path, max_iterations=1, hypothesis="a hypothesis")
+    result = asyncio.run(run_campaign(
+        campaign, ScriptedPlanner([]),
+        train_backend=ScriptedTrainBackend(tmp_path),
+        infer_backend=ScriptedInferBackend([1.0]),
+    ))
+    report = asyncio.run(write_report(result.state, campaign))
+    assert report["title"]
+    assert report["hypothesis"] == "a hypothesis"
+    assert report["best_accuracy"] == 1.0

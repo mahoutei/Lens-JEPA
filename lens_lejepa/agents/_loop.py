@@ -21,7 +21,8 @@ from dlens.schemas._experiment import ExperimentRun, ExperimentState, PlannerAct
 from dlens.tools._analysis import compute_analysis
 
 from ..data import CLASSES
-from ..utils import logger
+from ..engine import evaluate
+from ..utils import logger, write_json
 from ._backends import LensJepaInferBackend, LensJepaTrainBackend
 from ._spec import DOMAINS, CampaignSpec, DownstreamSpec, validate_delta
 
@@ -164,7 +165,9 @@ async def run_campaign(
         improved = not run.collapsed and (best_value is None or value > best_value + campaign.min_val_delta)
         if improved:
             best_value, no_improve = value, 0
-        else:
+        elif not run.collapsed:
+            # A collapsed run is a failed intervention the planner must react to,
+            # not a plateau: it does not consume the patience budget.
             no_improve += 1
         logger.info("iteration %d | validation accuracy %.4f", iteration, value)
 
@@ -191,3 +194,103 @@ async def run_campaign(
         best_checkpoint=best_run.train_result.weights_path if best_run is not None else None,
         output_dir=campaign.output_path,
     )
+
+
+def _iterations(state: LensJepaState) -> list[dict[str, Any]]:
+    """One row per iteration: the configuration, the metrics, the outcome."""
+    rows = []
+    for run in state.runs:
+        analysis = run.analysis_result
+        rows.append({
+            "iteration": run.iteration,
+            "spec": run.spec.model_dump(mode="json"),
+            "val_accuracy": float(analysis.accuracy) if analysis is not None else None,
+            "macro_auc": (
+                float(analysis.macro_auc)
+                if analysis is not None and analysis.macro_auc is not None
+                else None
+            ),
+            "collapsed": run.collapsed,
+            "rejection": run.rejection,
+            "run_dir": run.train_result.run_id if run.train_result is not None else None,
+            "rationale": run.planner_decision.rationale if run.planner_decision is not None else None,
+        })
+    return rows
+
+
+def _markdown(payload: dict[str, Any]) -> str:
+    """The campaign table a human reads."""
+    campaign = payload["campaign"]
+    lines = [
+        f"# {campaign['name']}",
+        "",
+        campaign["hypothesis"] or "_No hypothesis recorded._",
+        "",
+        "| # | encoder | adaptation | rank | lr | val accuracy | macro AUROC | note |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+    for row in payload["iterations"]:
+        accuracy = "n/a" if row["val_accuracy"] is None else f"{row['val_accuracy']:.4f}"
+        auc = "n/a" if row["macro_auc"] is None else f"{row['macro_auc']:.4f}"
+        spec = row["spec"]
+        note = row["rejection"] or ""
+        lines.append(
+            f"| {row['iteration']} | {spec['encoder']} | {spec['adaptation']} | {spec['rank']} | "
+            f"{spec['lr']:g} | {accuracy} | {auc} | {note} |"
+        )
+    best = payload["best_iteration"]
+    lines += [
+        "",
+        f"Selected iteration: **{best}**" if best is not None else "No iteration was selected.",
+        "",
+    ]
+    if payload["test"]:
+        lines += ["## Held-out test metrics", ""]
+        for key, value in payload["test"].items():
+            if isinstance(value, float):
+                lines.append(f"- {key}: {value:.4f}")
+    return "\n".join(lines) + "\n"
+
+
+def finalize(result: CampaignResult, campaign: CampaignSpec) -> dict[str, Any]:
+    """Score the selected checkpoint on the test set once, then write the artifacts."""
+    output = campaign.output_path
+    output.mkdir(parents=True, exist_ok=True)
+
+    test_metrics: dict[str, Any] | None = None
+    if result.best_checkpoint is not None and campaign.test_dataset:
+        logger.info("evaluating the selected checkpoint on %s", campaign.test_dataset)
+        batch_size = result.best_run.spec.batch_size if result.best_run is not None else campaign.initial.batch_size
+        test_metrics = evaluate(
+            result.best_checkpoint,
+            str(Path(campaign.data_root) / campaign.test_dataset),
+            campaign.device,
+            batch_size=batch_size,
+            workers=campaign.workers,
+        )
+
+    payload = {
+        "campaign": campaign.model_dump(mode="json"),
+        "iterations": _iterations(result.state),
+        "best_iteration": result.best_run.iteration if result.best_run is not None else None,
+        "best_checkpoint": result.best_checkpoint,
+        "test": test_metrics,
+    }
+    write_json(output / "campaign.json", payload)
+    (output / "campaign.md").write_text(_markdown(payload))
+    return payload
+
+
+async def write_report(state: LensJepaState, campaign: CampaignSpec, live: bool = False) -> dict[str, Any]:
+    """The DLens report agent's summary of the campaign.
+
+    The report agent reads the state, which already carries the campaign's
+    history and hypothesis; ``campaign`` names the campaign reported on.
+    """
+    from dlens.agents._report import ReportAgent
+    from dlens.agents._scripted_planner import make_scripted_report_model
+    from dlens.config import build_llm
+
+    agent = ReportAgent(model=build_llm() if live else make_scripted_report_model())
+    result = await agent.write(state)
+    return result.output.model_dump(mode="json")
