@@ -136,3 +136,15 @@ def test_sigreg_weights_include_the_standard_normal_characteristic_function():
     trapezoid[[0, -1]] = dt
     assert torch.allclose(test.weights, trapezoid * test.phi)
     assert torch.allclose(test.phi, torch.exp(-0.5 * test.t.square()))
+
+
+def test_collapsed_pretraining_leaves_no_loadable_checkpoint(fake_root, tmp_path):
+    from pathlib import Path
+
+    config = _pretrain_config(fake_root, tmp_path)
+    config.collapse_std_threshold = 10.0  # every epoch counts as collapsed
+    config.collapse_patience = 2          # so epoch 1 still writes a checkpoint
+    with pytest.raises(RuntimeError, match="collapsed"):
+        pretrain(config)
+    run_dir = Path(config.output_dir) / "pretrain" / config.method / config.run_name
+    assert not (run_dir / "last_pretrain.pt").exists()

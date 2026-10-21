@@ -168,6 +168,9 @@ def pretrain(config: PretrainConfig, resume: str | Path | None = None) -> Path:
             epoch, metrics["loss"], extra, diagnostics["feature_std"], diagnostics["effective_rank_fraction"],
         )
         if collapse_epochs >= config.collapse_patience:
+            # A collapsed run must leave nothing loadable behind, otherwise a
+            # downstream task can still pick up the encoder of a rejected run.
+            (run_dir / "last_pretrain.pt").unlink(missing_ok=True)
             raise RuntimeError(f"Representation collapsed for {collapse_epochs} epochs: {diagnostics}. Run rejected.")
         if not math.isfinite(metrics["loss"]):
             raise FloatingPointError("Non-finite epoch loss.")
