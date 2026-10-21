@@ -1168,6 +1168,84 @@ name was silently ignored for non-encoder backbones."
 
 ---
 
+### Task 10: Correct the README claims this plan made stale
+
+**Files:**
+- Modify: `README.md:59`, `README.md:167-169`, `README.md:190-192`
+
+**Interfaces:**
+- Consumes: the behaviour changes landed by Tasks 1, 4 and 9.
+- Produces: no new production code.
+
+**Background.** This task was added after Task 4's review flagged it: three statements in the README
+are now inaccurate because of the fixes in this plan. Only prose changes — no code, no tests.
+
+1. `README.md:59` claims "77 tests, CPU only, ~15 s". The suite had 82 tests before this plan and
+   has **101** after it, and it takes ~155 s on this machine, not ~15 s.
+2. `README.md:167-169` attributes the 0.1-point discrepancies of three rows to the scatter in the
+   lens inversion being non-deterministic on the GPU. That was true before Task 1: the old code
+   kept one arbitrary winner among colliding pixels. The inversion now **averages** them, so the
+   result no longer depends on which write wins and only the floating-point summation order can
+   differ, in the last bits. The three rows were measured before that fix and should be
+   re-measured.
+3. `README.md:191` says the collapse guard stops the run "before a checkpoint is written". After
+   Task 4 the guard stops the run and **deletes** the checkpoint it had written — the operative
+   guarantee ("a collapsed encoder can never reach a downstream task") is now true, but the
+   wording is not.
+
+- [ ] **Step 1: Make the three edits**
+
+Edit `README.md` line 59:
+
+```bash
+pytest                           # 101 tests, CPU only, ~2.5 min
+```
+
+Edit `README.md` lines 167-169:
+
+```markdown
+Lensiformer and the Lens-JEPA encoder invert the lens with scatter operations. When several pixels land on the
+same source pixel the inversion averages them, so the result no longer depends on which write wins; only the
+floating-point summation order on the GPU can differ, and only in the last bits. The three rows below were
+measured before that fix and should be re-measured.
+```
+
+Edit `README.md` lines 190-192:
+
+```markdown
+* **Collapse guard.** Every pretraining epoch records pooled feature standard deviation and effective-rank fraction.
+  Three consecutive epochs below `0.02` / `0.04` stop the run and delete the checkpoint it had written, so a
+  collapsed encoder can never reach a downstream task.
+```
+
+- [ ] **Step 2: Verify the claims you just wrote**
+
+Run: `.venv/bin/python -m pytest --collect-only -q | tail -2`
+Expected: the reported count is 101.
+
+Run: `.venv/bin/python -m pytest -q 2>&1 | tail -2`
+Expected: all tests pass.
+
+If either number differs from what you wrote above, write the number the run actually reports.
+
+- [ ] **Step 3: Check nothing else in the README contradicts the fixes**
+
+Run: `grep -n "77 tests\|before a checkpoint\|not deterministic" README.md`
+Expected: no matches (all three statements were corrected).
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add README.md
+git commit -m "docs: correct the README claims the fix pass made stale
+
+The test count and runtime were wrong, the lens-inversion paragraph
+described the pre-fix scatter, and the collapse-guard sentence said the
+run stops before a checkpoint is written when it now deletes it."
+```
+
+---
+
 ## Notes for the implementer
 
 - **Order matters only in one place:** Task 1 must land before Task 6, because Task 6 imports `lens_lejepa.models`, which needs torch importable. Otherwise the tasks are independent.

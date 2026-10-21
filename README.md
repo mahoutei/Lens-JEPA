@@ -56,7 +56,7 @@ Loading the original checkpoints into this code reproduces these held-out number
 ```bash
 git clone https://github.com/arnesh2212/Lens-FM-DeepLense.git lens-lejepa && cd lens-lejepa
 pip install -e ".[dev]"          # or: pip install -r requirements.txt
-pytest                           # 101 tests, CPU only, ~2.5 min
+pytest                           # 103 tests, CPU only, ~2.5 min
 ```
 
 Python ≥ 3.10 and PyTorch ≥ 2.1. Everything runs on a single GPU; the paper used one RTX A4500 (20 GB).
