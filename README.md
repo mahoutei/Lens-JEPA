@@ -54,7 +54,7 @@ Loading the original checkpoints into this code reproduces these held-out number
 ## Installation
 
 ```bash
-git clone https://github.com/arnesh2212/Lens-FM-DeepLense.git lens-lejepa && cd lens-lejepa
+git clone https://github.com/mahoutei/Lens-JEPA.git lens-lejepa && cd lens-lejepa
 pip install -e ".[dev]"          # or: pip install -r requirements.txt
 pytest                           # 103 tests, CPU only, ~2.5 min
 ```
@@ -204,3 +204,6 @@ tests/                   unit and end-to-end tests
 Developed during Google Summer of Code 2026 with [ML4SCI](https://ml4sci.org/) (DeepLense). The ViT follows the
 I-JEPA reference implementation and SIGReg follows the official [LeJEPA](https://github.com/galilai-group/lejepa)
 code.
+
+The Lens-LeJEPA codebase originates from [arnesh2212/Lens-FM-DeepLense](https://github.com/arnesh2212/Lens-FM-DeepLense);
+this repository carries it forward with a correctness fix pass and an agent-driven workflow.
