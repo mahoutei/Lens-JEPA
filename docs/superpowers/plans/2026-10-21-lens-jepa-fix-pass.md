@@ -1181,7 +1181,9 @@ name was silently ignored for non-encoder backbones."
 are now inaccurate because of the fixes in this plan. Only prose changes — no code, no tests.
 
 1. `README.md:59` claims "77 tests, CPU only, ~15 s". The suite had 82 tests before this plan and
-   has **101** after it, and it takes ~155 s on this machine, not ~15 s.
+   had **101** after it, and it takes ~155 s on this machine, not ~15 s. (The count moved again
+   afterwards, when the final review's fix wave added two more tests — write the number the suite
+   actually reports, as Step 2 says.)
 2. `README.md:167-169` attributes the 0.1-point discrepancies of three rows to the scatter in the
    lens inversion being non-deterministic on the GPU. That was true before Task 1: the old code
    kept one arbitrary winner among colliding pixels. The inversion now **averages** them, so the
