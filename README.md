@@ -56,7 +56,7 @@ Loading the original checkpoints into this code reproduces these held-out number
 ```bash
 git clone https://github.com/arnesh2212/Lens-FM-DeepLense.git lens-lejepa && cd lens-lejepa
 pip install -e ".[dev]"          # or: pip install -r requirements.txt
-pytest                           # 77 tests, CPU only, ~15 s
+pytest                           # 101 tests, CPU only, ~2.5 min
 ```
 
 Python ≥ 3.10 and PyTorch ≥ 2.1. Everything runs on a single GPU; the paper used one RTX A4500 (20 GB).
@@ -164,9 +164,10 @@ python -m lens_lejepa finetune --config configs/downstream/classification.yaml \
     --set backbone=lens_jepa adaptation=lora pretrained=runs/pretrain/lens_jepa_sym/lens_jepa_sym_model_i_seed42/last_pretrain.pt
 ```
 
-Lensiformer and the Lens-JEPA encoder invert the lens with scatter operations; when several pixels land on the same
-source pixel the GPU result is not deterministic, so two evaluations of the *same* checkpoint differ on about 2% of
-images. That is why these three rows differ from the paper by 0.1 points.
+Lensiformer and the Lens-JEPA encoder invert the lens with scatter operations. When several pixels land on the
+same source pixel the inversion averages them, so the result no longer depends on which write wins; only the
+floating-point summation order on the GPU can differ, and only in the last bits. The three rows above were
+measured before that fix and should be re-measured.
 
 ## Repository layout
 
@@ -188,8 +189,8 @@ tests/                   unit and end-to-end tests
 ## Reproducibility notes
 
 * **Collapse guard.** Every pretraining epoch records pooled feature standard deviation and effective-rank fraction.
-  Three consecutive epochs below `0.02` / `0.04` stop the run *before* a checkpoint is written, so a collapsed
-  encoder can never reach a downstream task.
+  Three consecutive epochs below `0.02` / `0.04` stop the run and delete the checkpoint it had written, so a
+  collapsed encoder can never reach a downstream task.
 * **Precision.** Training uses bfloat16 autocast; validation and test inference run in float32, so reported metrics
   do not depend on bf16 rounding.
 
