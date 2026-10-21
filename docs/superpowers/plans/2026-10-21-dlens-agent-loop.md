@@ -509,7 +509,22 @@ raises instead of being silently dropped."
 **Files:**
 - Create: `lens_lejepa/agents/_backends.py`
 - Modify: `lens_lejepa/agents/__init__.py`
+- Modify: `.github/workflows/tests.yml` (see the CI note below)
 - Test: `tests/test_agents.py`
+
+**CI note (added after Task 2).** This is the first task whose production code imports `dlens`
+(`_backends.py` imports `dlens.schemas._downstream`), so from here on the test suite cannot be
+collected in CI without DLens installed. Add one step to `.github/workflows/tests.yml`, after the
+install step:
+
+```yaml
+      - name: Install the agent dependencies
+        run: bash scripts/install_agent_deps.sh
+```
+
+`scripts/install_agent_deps.sh` pins DLens to a commit and installs it with `--no-deps`, so this
+adds the DLens checkout and three small pure-Python dependencies and nothing else. Do not change
+anything else in the workflow.
 
 **Interfaces:**
 - Consumes: `CampaignSpec`, `DownstreamSpec` (Task 2); `lens_lejepa.engine.finetune`, `run_inference`, `build_trained_model`; `lens_lejepa.tasks.build_task`; `lens_lejepa.data.CLASSES`, `make_loader`.
