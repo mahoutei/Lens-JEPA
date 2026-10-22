@@ -233,7 +233,8 @@ def _markdown(payload: dict[str, Any]) -> str:
         accuracy = "n/a" if row["val_accuracy"] is None else f"{row['val_accuracy']:.4f}"
         auc = "n/a" if row["macro_auc"] is None else f"{row['macro_auc']:.4f}"
         spec = row["spec"]
-        note = (row["rejection"] or "").replace("|", "\\|")  # a pipe would break the table
+        # A pipe or a newline would break the table row, so both are flattened.
+        note = " ".join((row["rejection"] or "").replace("|", "\\|").splitlines())
         lines.append(
             f"| {row['iteration']} | {spec['encoder']} | {spec['adaptation']} | {spec['rank']} | "
             f"{spec['lr']:g} | {accuracy} | {auc} | {note} |"

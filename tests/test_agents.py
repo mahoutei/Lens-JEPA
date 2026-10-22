@@ -482,6 +482,25 @@ def test_a_pipe_in_a_rejection_does_not_break_the_report_table(fake_root, tmp_pa
     assert "\\|" in rows[0]
 
 
+def test_a_newline_in_a_rejection_does_not_break_the_report_table(fake_root, tmp_path):
+    """A rejection may span lines; the table row may not."""
+    import re
+
+    from lens_lejepa.agents._loop import CampaignResult, LensJepaState, finalize
+
+    campaign = _tiny_campaign(fake_root, tmp_path, max_iterations=1)
+    run = _fake_run(0.5)
+    run.rejection = "unknown parameter 'lr'\nnot in the pool"
+    state = LensJepaState(hypothesis="a hypothesis")
+    state.runs.append(run)
+    result = CampaignResult(state=state, best_run=None, best_checkpoint=None, output_dir=campaign.output_path)
+
+    finalize(result, campaign)
+    rows = [line for line in (campaign.output_path / "campaign.md").read_text().splitlines() if line.startswith("| 0 |")]
+    assert len(rows) == 1
+    assert len(re.findall(r"(?<!\\)\|", rows[0])) == 9  # eight columns, pipes and all
+
+
 def test_the_campaign_config_loads_and_validates():
     from lens_lejepa.config import load_yaml_with_overrides
 
@@ -548,3 +567,25 @@ def test_run_from_config_runs_a_campaign_and_writes_its_artifacts(fake_root, tmp
     assert (output / "campaign.json").exists()
     assert (output / "campaign.md").exists()
     assert (output / "report.json").exists()
+
+
+def test_two_campaigns_with_the_same_seed_agree(fake_root, tmp_path):
+    """The same spec and the same seed give the same campaign, run for run."""
+    import asyncio
+
+    from lens_lejepa.agents._backends import LensJepaInferBackend, LensJepaTrainBackend
+    from lens_lejepa.agents._loop import run_campaign
+
+    accuracies = []
+    for name in ("a", "b"):
+        campaign = _tiny_campaign(fake_root, tmp_path / name, max_iterations=1)
+        result = asyncio.run(run_campaign(
+            campaign, ScriptedPlanner([]),
+            train_backend=LensJepaTrainBackend(campaign),
+            infer_backend=LensJepaInferBackend(campaign),
+        ))
+        accuracies.append([run.analysis_result.accuracy for run in result.state.runs])
+
+    assert len(accuracies[0]) == 1  # the comparison is not vacuous
+    assert accuracies[0] == accuracies[1]
+    assert accuracies[0][0] > 1 / len(CLASSES)  # and it is not a coincidence at chance
