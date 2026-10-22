@@ -39,6 +39,9 @@ def main(argv: list[str] | None = None) -> None:
 
     commands.add_parser("tasks", help="list registered downstream tasks")
 
+    agent_parser = commands.add_parser("agent-loop", help="run an agent-driven downstream campaign")
+    _add_config_args(agent_parser)
+
     args = parser.parse_args(argv)
     setup_logging()
 
@@ -65,6 +68,12 @@ def main(argv: list[str] | None = None) -> None:
         for name, cls in sorted(TASKS.items()):
             direction = "higher" if cls.higher_is_better else "lower"
             print(f"{name:18s} monitor={cls.monitor} ({direction} is better)  {cls.__doc__.strip().splitlines()[0] if cls.__doc__ else ''}")
+    elif args.command == "agent-loop":
+        import asyncio
+
+        from .agents import run_from_config
+
+        asyncio.run(run_from_config(args.config, args.set))
 
 
 if __name__ == "__main__":

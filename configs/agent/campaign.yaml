@@ -1,0 +1,53 @@
+# An agent campaign over the Lens-JEPA downstream pipeline.
+#
+#   python -m lens_lejepa agent-loop --config configs/agent/campaign.yaml
+#
+# The planner chooses the adapter and the hyper-parameters; "initial" is
+# the starting configuration. The task, the data, the label budget and the
+# seed are fixed for the whole campaign.
+name: lens_lejepa_adapters
+hypothesis: >-
+  Which parameter-efficient adapter, at which rank and learning rate, gives
+  the best validation accuracy on Model II with 100 labelled images per class?
+
+task: classification
+data_root: ../datasets
+train_dataset: Model_II
+test_dataset: Model_II_test
+shots: 100
+seed: 42
+device: cuda
+bf16: true
+workers: 8
+
+image_size: 160
+patch_size: 16
+val_interval: 10
+
+max_iterations: 8
+patience: 3
+output_dir: runs/agent
+
+# The pool the planner may choose an encoder from.
+encoders:
+  - name: lens_lejepa
+    backbone: vit_small
+    method: lens_lejepa
+    pretrained: runs/pretrain/lens_lejepa/lens_lejepa_model_i_seed42/last_pretrain.pt
+  - name: lejepa
+    backbone: vit_small
+    method: lejepa
+    pretrained: runs/pretrain/lejepa/lejepa_model_i_seed42/last_pretrain.pt
+
+# The first configuration of the campaign.
+initial:
+  encoder: lens_lejepa
+  adaptation: rslora
+  rank: 32
+  alpha: 64.0
+  lr: 3.0e-4
+  weight_decay: 0.01
+  dropout: 0.0
+  epochs: 50
+  batch_size: 128
+  label_smoothing: 0.1

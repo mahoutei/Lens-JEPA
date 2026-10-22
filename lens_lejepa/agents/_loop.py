@@ -233,7 +233,7 @@ def _markdown(payload: dict[str, Any]) -> str:
         accuracy = "n/a" if row["val_accuracy"] is None else f"{row['val_accuracy']:.4f}"
         auc = "n/a" if row["macro_auc"] is None else f"{row['macro_auc']:.4f}"
         spec = row["spec"]
-        note = row["rejection"] or ""
+        note = (row["rejection"] or "").replace("|", "\\|")  # a pipe would break the table
         lines.append(
             f"| {row['iteration']} | {spec['encoder']} | {spec['adaptation']} | {spec['rank']} | "
             f"{spec['lr']:g} | {accuracy} | {auc} | {note} |"
@@ -255,6 +255,12 @@ def _markdown(payload: dict[str, Any]) -> str:
 def finalize(result: CampaignResult, campaign: CampaignSpec) -> dict[str, Any]:
     """Score the selected checkpoint on the test set once, then write the artifacts."""
     output = campaign.output_path
+    marker = output / "campaign.json"
+    if marker.exists():
+        raise RuntimeError(
+            f"Campaign {campaign.name!r} has already been finalized ({marker}); "
+            "run it under a new campaign name instead of scoring the test set twice."
+        )
     output.mkdir(parents=True, exist_ok=True)
 
     test_metrics: dict[str, Any] | None = None
@@ -294,3 +300,30 @@ async def write_report(state: LensJepaState, campaign: CampaignSpec, live: bool 
     agent = ReportAgent(model=build_llm() if live else make_scripted_report_model())
     result = await agent.write(state)
     return result.output.model_dump(mode="json")
+
+
+async def run_from_config(path: str | None = None, overrides: list[str] | None = None) -> Path:
+    """Run a campaign described by a YAML file, and return the artifact directory."""
+    import os
+
+    from ..config import load_yaml_with_overrides
+
+    campaign = CampaignSpec(**load_yaml_with_overrides(path, overrides))
+    live = bool(os.getenv("DLENS_LLM") or os.getenv("OPENAI_API_KEY"))
+    logger.info(
+        "campaign %s | %d iterations | %s | encoders: %s",
+        campaign.name, campaign.max_iterations,
+        "live planner" if live else "offline scripted planner",
+        ", ".join(item.name for item in campaign.encoders),
+    )
+    result = await run_campaign(
+        campaign,
+        build_planner(campaign, live=live),
+        train_backend=LensJepaTrainBackend(campaign),
+        infer_backend=LensJepaInferBackend(campaign),
+    )
+    finalize(result, campaign)
+    report = await write_report(result.state, campaign, live=live)
+    write_json(result.output_dir / "report.json", report)
+    logger.info("campaign artifacts: %s", result.output_dir)
+    return result.output_dir

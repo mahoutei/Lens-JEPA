@@ -434,3 +434,117 @@ def test_the_report_agent_summarises_the_campaign(fake_root, tmp_path):
     assert report["title"]
     assert report["hypothesis"] == "a hypothesis"
     assert report["best_accuracy"] == 1.0
+
+
+def test_a_campaign_is_finalized_only_once(fake_root, tmp_path, monkeypatch):
+    """The test set is scored exactly once: a second finalize is a loud failure."""
+    import asyncio
+
+    import lens_lejepa.agents._loop as loop_module
+    from lens_lejepa.agents._loop import finalize, run_campaign
+
+    calls = []
+    monkeypatch.setattr(
+        loop_module, "evaluate",
+        lambda *args, **kwargs: calls.append(args) or {"accuracy": 0.5},
+    )
+
+    campaign = _tiny_campaign(fake_root, tmp_path, max_iterations=1)
+    result = asyncio.run(run_campaign(
+        campaign, ScriptedPlanner([]),
+        train_backend=ScriptedTrainBackend(tmp_path),
+        infer_backend=ScriptedInferBackend([1.0]),
+    ))
+    finalize(result, campaign)
+    assert len(calls) == 1
+
+    with pytest.raises(RuntimeError, match="already been finalized"):
+        finalize(result, campaign)
+    assert len(calls) == 1  # the refused call did not score the test set again
+
+
+def test_a_pipe_in_a_rejection_does_not_break_the_report_table(fake_root, tmp_path):
+    import re
+
+    from lens_lejepa.agents._loop import CampaignResult, LensJepaState, finalize
+
+    campaign = _tiny_campaign(fake_root, tmp_path, max_iterations=1)
+    run = _fake_run(0.5)
+    run.rejection = "unknown parameter 'lr' | out of the pool"
+    state = LensJepaState(hypothesis="a hypothesis")
+    state.runs.append(run)
+    result = CampaignResult(state=state, best_run=None, best_checkpoint=None, output_dir=campaign.output_path)
+
+    finalize(result, campaign)
+    rows = [line for line in (campaign.output_path / "campaign.md").read_text().splitlines() if line.startswith("| 0 |")]
+    assert len(rows) == 1
+    assert len(re.findall(r"(?<!\\)\|", rows[0])) == 9  # eight columns, pipes and all
+    assert "\\|" in rows[0]
+
+
+def test_the_campaign_config_loads_and_validates():
+    from lens_lejepa.config import load_yaml_with_overrides
+
+    path = Path(__file__).resolve().parent.parent / "configs" / "agent" / "campaign.yaml"
+    campaign = CampaignSpec(**load_yaml_with_overrides(path))
+    assert campaign.task == "classification"
+    assert campaign.encoders
+    assert campaign.initial.adaptation in (
+        "lora", "rslora", "dora", "loraplus", "gated", "loha", "layerwise", "full", "linear_probe",
+    )
+
+
+def test_the_cli_exposes_the_agent_loop_subcommand():
+    from lens_lejepa.cli import main
+
+    with pytest.raises(SystemExit) as exit_info:
+        main(["agent-loop", "--help"])
+    assert exit_info.value.code == 0
+
+
+def test_the_cli_does_not_import_the_agent_package():
+    """The core CLI must work without DLens installed, so the import stays lazy."""
+    import subprocess
+    import sys
+
+    probe = "import sys, lens_lejepa.cli; print('dlens' in sys.modules, 'lens_lejepa.agents' in sys.modules)"
+    done = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, check=True)
+    assert done.stdout.strip() == "False False"
+
+
+def test_run_from_config_runs_a_campaign_and_writes_its_artifacts(fake_root, tmp_path, monkeypatch):
+    import asyncio
+
+    from lens_lejepa.agents import run_from_config
+
+    monkeypatch.delenv("DLENS_LLM", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    config = tmp_path / "campaign.yaml"
+    config.write_text(
+        f"name: demo\n"
+        f"task: classification\n"
+        f"data_root: {fake_root.parent}\n"
+        f"train_dataset: {fake_root.name}\n"
+        f"test_dataset: {fake_root.name}\n"
+        f"image_size: 32\n"
+        f"device: cpu\n"
+        f"bf16: false\n"
+        f"workers: 0\n"
+        f"val_interval: 1\n"
+        f"max_iterations: 1\n"
+        f"output_dir: {tmp_path / 'runs'}\n"
+        f"encoders:\n"
+        f"  - name: vit_small\n"
+        f"    backbone: vit_tiny\n"
+        f"initial:\n"
+        f"  encoder: vit_small\n"
+        f"  adaptation: linear_probe\n"
+        f"  epochs: 1\n"
+        f"  batch_size: 8\n"
+    )
+
+    output = asyncio.run(run_from_config(str(config)))
+    assert output == tmp_path / "runs" / "demo"
+    assert (output / "campaign.json").exists()
+    assert (output / "campaign.md").exists()
+    assert (output / "report.json").exists()

@@ -13,6 +13,7 @@ from ._loop import (
     build_planner_prompt,
     finalize,
     run_campaign,
+    run_from_config,
     select_best_run,
     write_report,
 )
@@ -32,6 +33,7 @@ __all__ = [
     "build_planner_prompt",
     "finalize",
     "run_campaign",
+    "run_from_config",
     "select_best_run",
     "validate_delta",
     "write_report",
