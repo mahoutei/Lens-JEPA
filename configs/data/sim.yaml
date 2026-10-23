@@ -1,0 +1,17 @@
+# Synthetic bring-up dataset: DeepLense's Model II recipe at demo scale.
+# NOT paper-grade — see docs/superpowers/specs/2026-10-23-synthetic-data-design.md.
+#   python -m lens_lejepa generate-data --config configs/data/sim.yaml
+output_root: ../datasets_sim
+seed: 42
+workers: 8
+image_size: 64
+noise: true
+model_i_per_class: 667
+model_ii_per_class: 1000
+model_ii_test_per_class: 200
+axion_mass_min: 1.0e-24
+axion_mass_max: 2.0e-23
+physics:
+  n_sub: 25
+  vortex_mass: 1.0e10
+  vortex_res: 100

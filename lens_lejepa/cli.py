@@ -3,6 +3,7 @@
     python -m lens_lejepa pretrain --config configs/pretrain/lens_lejepa.yaml
     python -m lens_lejepa finetune --config configs/downstream/classification.yaml --set shots=100
     python -m lens_lejepa evaluate --checkpoint runs/.../best.pt --test-root ../datasets/Model_III_test
+    python -m lens_lejepa generate-data --config configs/data/sim.yaml
     python -m lens_lejepa tasks
 """
 
@@ -42,6 +43,9 @@ def main(argv: list[str] | None = None) -> None:
     agent_parser = commands.add_parser("agent-loop", help="run an agent-driven downstream campaign")
     _add_config_args(agent_parser)
 
+    generate_parser = commands.add_parser("generate-data", help="write a synthetic DeepLense-format dataset")
+    _add_config_args(generate_parser)
+
     args = parser.parse_args(argv)
     setup_logging()
 
@@ -74,6 +78,10 @@ def main(argv: list[str] | None = None) -> None:
         from .agents import run_from_config
 
         asyncio.run(run_from_config(args.config, args.set))
+    elif args.command == "generate-data":
+        from .sim import generate_from_config
+
+        generate_from_config(args.config, args.set)
 
 
 if __name__ == "__main__":

@@ -346,7 +346,10 @@ def test_generate_skips_files_that_already_exist(tmp_path):
 
 
 def test_generate_raises_when_verification_fails(tmp_path, monkeypatch):
-    import lens_lejepa.sim.generate as module
+    import importlib
+
+    # ``lens_lejepa.sim.generate`` is shadowed by the re-exported function.
+    module = importlib.import_module("lens_lejepa.sim.generate")
 
     monkeypatch.setattr(
         module,
@@ -374,3 +377,28 @@ def test_generate_repairs_a_truncated_file(tmp_path):
 
     assert report["ok"]
     assert truncated.read_bytes() == original
+
+
+from lens_lejepa.cli import main
+
+
+def test_shipped_sim_config_matches_the_design():
+    config = load_config(SimulationConfig, "configs/data/sim.yaml")
+    assert (config.image_size, config.noise) == (64, True)
+    assert (config.model_i_per_class, config.model_ii_per_class, config.model_ii_test_per_class) == (667, 1000, 200)
+    assert (config.axion_mass_min, config.axion_mass_max) == (1e-24, 2e-23)
+    assert config.physics.n_sub == 25
+
+
+def test_cli_generate_data(tmp_path):
+    main([
+        "generate-data",
+        "--set",
+        f"output_root={tmp_path}",
+        "workers=1",
+        "model_i_per_class=1",
+        "model_ii_per_class=1",
+        "model_ii_test_per_class=1",
+    ])
+    assert (tmp_path / "Model_II" / "axion" / "sim_00000.npy").exists()
+    assert (tmp_path / "Model_I" / "no_sub" / "sim_00000.npy").exists()

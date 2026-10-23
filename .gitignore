@@ -24,3 +24,6 @@ htmlcov/
 
 # superpowers scratch workspace
 .superpowers/
+
+# generated synthetic dataset (never commit images)
+datasets_sim/
