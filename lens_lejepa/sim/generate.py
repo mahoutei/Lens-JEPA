@@ -8,13 +8,20 @@ Generated data is for bring-up only — see the design doc.
 
 from __future__ import annotations
 
+import functools
+import logging
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
+from tqdm import tqdm
 
+from ..config import load_config
 from ..data.io import load_axion_image_and_log_mass, load_lens_image
-from .lens import EUCLID_PIXEL_SCALE, LensParameters, axion_mass_to_length
+from .lens import EUCLID_PIXEL_SCALE, LensParameters, axion_mass_to_length, simulate
+
+logger = logging.getLogger(__name__)
 
 CLASSES = ("axion", "cdm", "no_sub")  # this order defines the label indices 0/1/2
 _MODEL_IDS = {"Model_I": 0, "Model_II": 1, "Model_II_test": 2}
@@ -119,3 +126,88 @@ def verify_dataset(root: str | Path, config: SimulationConfig) -> dict:
                 report["ok"] = False
         report["models"][model] = per_class
     return report
+
+
+def _jobs(config: SimulationConfig) -> list[dict]:
+    jobs: list[dict] = []
+    for model, count in _model_counts(config):
+        for class_index, kind in enumerate(CLASSES):
+            for index in range(count):
+                jobs.append({
+                    "model_id": _MODEL_IDS[model],
+                    "kind": kind,
+                    "class_index": class_index,
+                    "index": index,
+                    "path": str(Path(config.output_root) / model / kind / f"sim_{index:05d}.npy"),
+                })
+    return jobs
+
+
+def _render_job(config: SimulationConfig, job: dict) -> str:
+    path = Path(job["path"])
+    if path.exists():  # resumable: deterministic seeds make this safe
+        return str(path)
+
+    rng = np.random.RandomState([config.seed, job["model_id"], job["class_index"], job["index"]])
+    axion_mass = None
+    if job["kind"] == "axion":
+        axion_mass = float(
+            np.exp(rng.uniform(np.log(config.axion_mass_min), np.log(config.axion_mass_max)))
+        )
+    image = simulate(
+        job["kind"],
+        config.physics,
+        rng,
+        num_pix=config.image_size,
+        axion_mass=axion_mass,
+        noise=config.noise,
+    )
+    write_image(path, image, axion_mass)
+    return str(path)
+
+
+def _summarise(report: dict) -> str:
+    problems = [
+        f"{model}/{name}: {'; '.join(entry['errors'][:3])}"
+        for model, classes in report["models"].items()
+        for name, entry in classes.items()
+        if entry["errors"]
+    ]
+    return " | ".join(problems[:5])
+
+
+def generate(config: SimulationConfig) -> dict:
+    """Write every image the config describes, then verify the result.
+
+    Existing files are skipped, so an interrupted run resumes. Raises
+    ``RuntimeError`` if the resulting dataset is short or degenerate.
+    """
+    jobs = _jobs(config)
+    render = functools.partial(_render_job, config)
+
+    if config.workers == 1:
+        for job in tqdm(jobs, desc="simulating", leave=False):
+            render(job)
+    else:
+        with ProcessPoolExecutor(max_workers=config.workers) as pool:
+            for _ in tqdm(pool.map(render, jobs), total=len(jobs), desc="simulating", leave=False):
+                pass
+
+    report = verify_dataset(config.output_root, config)
+    counts = {
+        model: {name: entry["count"] for name, entry in classes.items()}
+        for model, classes in report["models"].items()
+    }
+    if not report["ok"]:
+        logger.error("synthetic dataset at %s failed verification: %s", config.output_root, counts)
+        raise RuntimeError(f"generated dataset failed verification: {_summarise(report)}")
+    logger.info("synthetic dataset at %s verified: %s", config.output_root, counts)
+    return report
+
+
+def generate_from_config(
+    path: str | Path | None = None,
+    overrides: list[str] | None = None,
+) -> dict:
+    """Build a :class:`SimulationConfig` from YAML + ``--set`` overrides and run it."""
+    return generate(load_config(SimulationConfig, path, overrides))

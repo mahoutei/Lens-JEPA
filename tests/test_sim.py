@@ -284,3 +284,74 @@ def test_verify_caps_the_error_list_for_malformed_files(tmp_path):
     report = verify_dataset(tmp_path, config)
     assert not report["ok"]
     assert len(report["models"]["Model_I"]["axion"]["errors"]) <= 20
+
+
+from lens_lejepa.data.datasets import list_class_files
+from lens_lejepa.sim.generate import generate
+
+
+def _tiny_config(root, workers=1):
+    return SimulationConfig(
+        output_root=str(root),
+        workers=workers,
+        model_i_per_class=1,
+        model_ii_per_class=1,
+        model_ii_test_per_class=1,
+    )
+
+
+def test_generate_writes_the_expected_tree(tmp_path):
+    report = generate(_tiny_config(tmp_path))
+    assert report["ok"]
+    assert (tmp_path / "Model_II_test" / "no_sub" / "sim_00000.npy").exists()
+
+    paths, labels = list_class_files(tmp_path / "Model_II")
+    assert len(paths) == 3
+    assert sorted(labels.tolist()) == [0, 1, 2]
+
+
+def test_generated_images_load_through_the_real_dataset(tmp_path):
+    from lens_lejepa.data.datasets import LensClassificationDataset
+
+    generate(_tiny_config(tmp_path))
+    dataset = LensClassificationDataset(tmp_path / "Model_II", 64)
+    item = dataset[0]
+    assert item["image"].shape == (1, 64, 64)
+    assert item["label"].dtype.is_floating_point is False
+
+
+def test_parallel_generation_is_byte_identical_to_serial(tmp_path):
+    serial = tmp_path / "serial"
+    parallel = tmp_path / "parallel"
+    generate(_tiny_config(serial, workers=1))
+    generate(_tiny_config(parallel, workers=2))
+
+    for model in ("Model_I", "Model_II", "Model_II_test"):
+        for name in ("axion", "cdm", "no_sub"):
+            path = serial / model / name / "sim_00000.npy"
+            assert path.read_bytes() == (parallel / model / name / path.name).read_bytes()
+
+
+def test_generate_skips_files_that_already_exist(tmp_path):
+    config = _tiny_config(tmp_path)
+    generate(config)
+    kept = tmp_path / "Model_II" / "cdm" / "sim_00000.npy"
+    stamp = kept.stat().st_mtime_ns
+
+    (tmp_path / "Model_II" / "no_sub" / "sim_00000.npy").unlink()
+    generate(config)
+
+    assert kept.stat().st_mtime_ns == stamp
+    assert (tmp_path / "Model_II" / "no_sub" / "sim_00000.npy").exists()
+
+
+def test_generate_raises_when_verification_fails(tmp_path, monkeypatch):
+    import lens_lejepa.sim.generate as module
+
+    monkeypatch.setattr(
+        module,
+        "verify_dataset",
+        lambda root, config: {"ok": False, "models": {"Model_II": {"cdm": {"count": 0, "errors": ["boom"]}}}},
+    )
+    with pytest.raises(RuntimeError, match="verification"):
+        generate(_tiny_config(tmp_path))
