@@ -85,6 +85,27 @@ identical on every machine.
 | Model II | 89,104 | 15,000 | classification (few-shot + full), regression, SR |
 | Model III | 89,396 | 15,000 | classification, regression, SR (full data) |
 
+### Synthetic bring-up dataset (not paper-grade)
+
+The generator writes the same `.npy` layout from DeepLense's Model II recipe
+(lenstronomy SIS + CDM point masses / axion vortex, Sérsic source, Euclid VIS).
+It exists for CI, smoke runs and agent-loop demos.
+
+```bash
+pip install -e ".[sim]"
+python -m lens_lejepa generate-data --config configs/data/sim.yaml     # ../datasets_sim, 5,601 images, 30 s
+python -m lens_lejepa pretrain --config configs/pretrain/sim_smoke.yaml
+python -m lens_lejepa agent-loop --config configs/agent/campaign_sim.yaml
+```
+
+A one-epoch linear probe on Model II reaches 0.3417 / 0.3433 accuracy (chance 0.33) on the
+reference CPU — a plumbing check, not a result.
+
+**These are not the DeepLense images.** Nothing measured on them is comparable
+with the paper's numbers, and every run using them records `sim` in its name.
+The recipe and the deliberate deviations are documented in
+`docs/superpowers/specs/2026-10-23-synthetic-data-design.md`.
+
 ## Quick start
 
 ```bash
@@ -174,15 +195,16 @@ measured before that fix and should be re-measured.
 ```
 lens_lejepa/
 ├── config.py            typed configs (defaults = paper settings), YAML + --set overrides
-├── cli.py               python -m lens_lejepa {pretrain, finetune, evaluate, tasks, agent-loop}
+├── cli.py               python -m lens_lejepa {pretrain, finetune, evaluate, tasks, agent-loop, generate-data}
 ├── agents/              the agent campaign: campaign specs, the DLens-backed loop, artifacts
 ├── metrics.py           classification / regression / super-resolution metrics
 ├── data/                io.py (npy loading, preprocessing), datasets.py, splits.py
+├── sim/                 synthetic bring-up data generation (lenstronomy; optional `sim` extra)
 ├── models/              vit.py, lens_jepa.py, masking.py, heads.py, adapters.py, supervised.py, baselines.py
 ├── ssl/                 sigreg.py, views.py, lens_priors.py, objective.py, masked_jepa.py, diagnostics.py
 ├── tasks/               base.py (the Task interface), classification.py, regression.py, super_resolution.py
 └── engine/              pretrain.py, finetune.py (training, model selection, evaluation)
-configs/                 pretrain/*.yaml, downstream/*.yaml, agent/campaign.yaml
+configs/                 pretrain/*.yaml, downstream/*.yaml, agent/*.yaml, data/sim.yaml
 scripts/                 reproduce_paper.sh, collect_results.py, install_agent_deps.sh
 tests/                   unit and end-to-end tests
 ```

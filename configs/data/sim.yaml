@@ -2,6 +2,8 @@
 # NOT paper-grade — see docs/superpowers/specs/2026-10-23-synthetic-data-design.md.
 #   python -m lens_lejepa generate-data --config configs/data/sim.yaml
 # Measured on this machine: 30s with 8 workers (5,601 images, 110 MB).
+# Measured learnability (NOT paper-comparable): a one-epoch linear probe on Model II
+# scores 0.3417 / 0.3433 (3-class chance 0.33).
 output_root: ../datasets_sim
 seed: 42
 workers: 8
