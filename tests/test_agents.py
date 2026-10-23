@@ -796,6 +796,26 @@ def test_the_campaign_artifact_records_each_decision_and_whether_it_was_applied(
     assert (campaign.output_path / "campaign.json").exists()
 
 
+def test_a_change_the_last_iteration_never_trains_is_not_recorded_as_applied(fake_root, tmp_path):
+    import asyncio
+
+    from lens_lejepa.agents._loop import finalize, run_campaign
+
+    campaign = _tiny_campaign(fake_root, tmp_path, test_dataset=None, max_iterations=1)
+    planner = ScriptedPlanner([
+        {"action": "train", "rationale": "lower the lr", "updated_params": {"lr": 1e-3}},
+    ])
+    result = asyncio.run(run_campaign(
+        campaign, planner,
+        train_backend=ScriptedTrainBackend(tmp_path),
+        infer_backend=ScriptedInferBackend([1.0]),
+    ))
+    rows = finalize(result, campaign)["iterations"]
+
+    assert rows[0]["decision"]["updated_params"] == {"lr": 1e-3}
+    assert rows[0]["applied"] is False  # nothing trained the changed spec
+
+
 def test_max_steps_per_epoch_reaches_the_finetune_config(fake_root, tmp_path):
     from lens_lejepa.agents._backends import build_finetune_config
 

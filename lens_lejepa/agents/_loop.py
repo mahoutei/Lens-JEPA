@@ -183,7 +183,8 @@ async def run_campaign(
             break
         try:
             spec = validate_delta(spec, decision.updated_params, campaign)
-            run.applied = True
+            # Only a change the next iteration actually trains was applied.
+            run.applied = iteration + 1 < campaign.max_iterations
         except ValueError as error:
             # Keep the collapse reason too: both are why this iteration did not count.
             run.rejection = f"{run.rejection}; {error}" if run.rejection else str(error)
