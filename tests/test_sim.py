@@ -135,3 +135,44 @@ def test_simulate_without_noise_skips_the_noise_draw():
 def test_simulate_rejects_an_axion_without_a_mass():
     with pytest.raises(ValueError, match="axion"):
         simulate("axion", LensParameters(), np.random.RandomState(0), num_pix=64)
+
+
+from lens_lejepa.config import load_config
+from lens_lejepa.sim.generate import SimulationConfig
+
+
+def test_config_defaults_match_the_design():
+    config = SimulationConfig()
+    assert config.image_size == 64
+    assert (config.axion_mass_min, config.axion_mass_max) == (1e-24, 2e-23)
+    assert (config.model_i_per_class, config.model_ii_per_class, config.model_ii_test_per_class) == (667, 1000, 200)
+    assert isinstance(config.physics, LensParameters)
+
+
+def test_config_rejects_a_vortex_wider_than_the_field():
+    # 1e-25 eV gives a 30" vortex on a 6.46" field.
+    with pytest.raises(ValueError, match="vortex"):
+        SimulationConfig(axion_mass_min=1e-25)
+
+
+def test_config_rejects_an_inverted_mass_range():
+    with pytest.raises(ValueError, match="axion_mass"):
+        SimulationConfig(axion_mass_min=2e-23, axion_mass_max=1e-24)
+
+
+def test_config_rejects_a_zero_count():
+    with pytest.raises(ValueError, match="model_ii_per_class"):
+        SimulationConfig(model_ii_per_class=0)
+
+
+def test_config_rejects_unknown_yaml_keys(tmp_path):
+    path = tmp_path / "sim.yaml"
+    path.write_text("nope: 1\n")
+    with pytest.raises(ValueError, match="Unknown SimulationConfig"):
+        load_config(SimulationConfig, path)
+
+
+def test_config_builds_physics_from_a_nested_dict():
+    config = SimulationConfig(physics={"n_sub": 10, "vortex_res": 50})
+    assert config.physics.n_sub == 10
+    assert config.physics.vortex_res == 50
