@@ -101,3 +101,37 @@ def test_build_lens_rejects_a_mass_for_a_non_axion_class():
 def test_build_lens_rejects_an_unknown_class():
     with pytest.raises(ValueError, match="Unknown lens class"):
         build_lens("blobs", LensParameters(), np.random.RandomState(0))
+
+
+from lens_lejepa.sim.lens import simulate
+
+
+@pytest.mark.parametrize(
+    ("kind", "mass"),
+    [("no_sub", None), ("cdm", None), ("axion", 1e-23)],
+)
+def test_simulate_renders_a_finite_non_constant_image(kind, mass):
+    image = simulate(kind, LensParameters(), np.random.RandomState(3), num_pix=64, axion_mass=mass)
+    assert image.shape == (64, 64)
+    assert image.dtype == np.float32
+    assert np.isfinite(image).all()
+    assert image.std() > 0
+
+
+def test_simulate_is_deterministic_for_a_seeded_rng():
+    params = LensParameters()
+    first = simulate("cdm", params, np.random.RandomState(11), num_pix=64)
+    second = simulate("cdm", params, np.random.RandomState(11), num_pix=64)
+    assert np.array_equal(first, second)
+
+
+def test_simulate_without_noise_skips_the_noise_draw():
+    params = LensParameters()
+    clean = simulate("no_sub", params, np.random.RandomState(5), num_pix=64, noise=False)
+    noisy = simulate("no_sub", params, np.random.RandomState(5), num_pix=64, noise=True)
+    assert not np.array_equal(clean, noisy)
+
+
+def test_simulate_rejects_an_axion_without_a_mass():
+    with pytest.raises(ValueError, match="axion"):
+        simulate("axion", LensParameters(), np.random.RandomState(0), num_pix=64)

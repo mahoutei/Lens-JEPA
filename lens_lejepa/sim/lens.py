@@ -124,3 +124,54 @@ def build_lens(
                 "center_y": float(coord * np.sin(angle)),
             })
     return models, kwargs
+
+
+def simulate(
+    kind: str,
+    params: LensParameters,
+    rng: np.random.RandomState,
+    *,
+    num_pix: int,
+    axion_mass: float | None = None,
+    noise: bool = True,
+    noise_seed: int | None = None,
+) -> np.ndarray:
+    """Render one image with the published instrument and source model.
+
+    ``rng`` drives the source position, the substructure and (when ``noise_seed``
+    is not given) the noise realisation, so a fresh ``RandomState`` makes the
+    whole render deterministic.
+    """
+    from lenstronomy.SimulationAPI.ObservationConfig.Euclid import Euclid
+    from lenstronomy.SimulationAPI.sim_api import SimAPI
+
+    models, kwargs_lens = build_lens(kind, params, rng, axion_mass)
+    instrument = Euclid(band="VIS", psf_type="GAUSSIAN", coadd_years=6).kwargs_single_band()
+    kwargs_model = {
+        "lens_model_list": models,
+        "lens_redshift_list": [params.z_halo] * len(models),
+        "source_light_model_list": ["SERSIC_ELLIPSE"],
+        "source_redshift_list": [params.z_source],
+        "cosmo": _COSMO,
+        "z_source_convention": 2.5,
+        "z_source": 1.0,
+    }
+    sim = SimAPI(num_pix=num_pix, kwargs_single_band=instrument, kwargs_model=kwargs_model)
+    image_model = sim.image_model_class({"point_source_supersampling_factor": 1})
+
+    kwargs_source = [{
+        "magnitude": 20.0,
+        "R_sersic": 0.25,
+        "n_sersic": 1.0,
+        "e1": -0.1,
+        "e2": 0.1,
+        "center_x": float(rng.uniform(-0.35, 0.35)),
+        "center_y": float(rng.uniform(-0.35, 0.35)),
+    }]
+    _, kwargs_source, _ = sim.magnitude2amplitude(None, kwargs_source)
+    image = image_model.image(kwargs_lens, kwargs_source, None)
+
+    if noise:
+        seed = noise_seed if noise_seed is not None else int(rng.randint(0, 2**31 - 1))
+        image = image + sim.noise_for_model(model=image, seed=seed)
+    return np.asarray(image, dtype=np.float32)
