@@ -388,6 +388,8 @@ def test_shipped_sim_config_matches_the_design():
     assert (config.model_i_per_class, config.model_ii_per_class, config.model_ii_test_per_class) == (667, 1000, 200)
     assert (config.axion_mass_min, config.axion_mass_max) == (1e-24, 2e-23)
     assert config.physics.n_sub == 25
+    assert config.physics.vortex_mass == 1e10
+    assert config.physics.vortex_res == 100
 
 
 def test_cli_generate_data(tmp_path):

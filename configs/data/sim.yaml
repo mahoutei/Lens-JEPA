@@ -13,5 +13,5 @@ axion_mass_min: 1.0e-24
 axion_mass_max: 2.0e-23
 physics:
   n_sub: 25
-  vortex_mass: 1.0e10
+  vortex_mass: 1.0e+10
   vortex_res: 100
