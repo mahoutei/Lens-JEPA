@@ -345,6 +345,23 @@ def test_generate_skips_files_that_already_exist(tmp_path):
     assert (tmp_path / "Model_II" / "no_sub" / "sim_00000.npy").exists()
 
 
+def test_generate_changes_with_the_seed(tmp_path):
+    generate(_tiny_config(tmp_path))
+    other = SimulationConfig(
+        output_root=str(tmp_path / "seed7"),
+        workers=1,
+        model_i_per_class=1,
+        model_ii_per_class=1,
+        model_ii_test_per_class=1,
+        seed=7,
+    )
+    generate(other)
+
+    relative = ("Model_II", "axion", "sim_00000.npy")
+    assert (tmp_path.joinpath(*relative)).read_bytes() != (
+        tmp_path / "seed7").joinpath(*relative).read_bytes()
+
+
 def test_generate_raises_when_verification_fails(tmp_path, monkeypatch):
     import importlib
 
