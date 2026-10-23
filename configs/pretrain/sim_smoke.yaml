@@ -29,5 +29,6 @@ seed: 42
 workers: 2
 device: cpu
 bf16: false
+collapse_patience: 100  # smoke run: the guard is for real runs (see README)
 output_dir: runs
 run_name: sim_smoke_seed42
