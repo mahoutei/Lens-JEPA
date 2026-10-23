@@ -549,7 +549,7 @@ def simulate(
 .venv/bin/python -m pytest tests/test_sim.py -q
 ```
 
-Expected: `16 passed`, well under a minute.
+Expected: `18 passed`, well under a minute.
 
 - [ ] **Step 5: Commit**
 
@@ -692,7 +692,7 @@ class SimulationConfig:
 .venv/bin/python -m pytest tests/test_sim.py -q
 ```
 
-Expected: `22 passed`.
+Expected: `24 passed`.
 
 - [ ] **Step 5: Commit**
 
@@ -831,6 +831,15 @@ def write_image(path: str | Path, image: np.ndarray, axion_mass: float | None = 
     np.save(path, payload, allow_pickle=True)
 
 
+def _model_counts(config: SimulationConfig) -> list[tuple[str, int]]:
+    """The model -> images-per-class plan, shared by generation and verification."""
+    return [
+        ("Model_I", config.model_i_per_class),
+        ("Model_II", config.model_ii_per_class),
+        ("Model_II_test", config.model_ii_test_per_class),
+    ]
+
+
 def verify_dataset(root: str | Path, config: SimulationConfig) -> dict:
     """Check counts, shapes, finiteness, class contrast and axion masses.
 
@@ -839,12 +848,7 @@ def verify_dataset(root: str | Path, config: SimulationConfig) -> dict:
     """
     root = Path(root)
     report: dict = {"ok": True, "models": {}}
-    plan = (
-        ("Model_I", config.model_i_per_class),
-        ("Model_II", config.model_ii_per_class),
-        ("Model_II_test", config.model_ii_test_per_class),
-    )
-    for model, expected in plan:
+    for model, expected in _model_counts(config):
         per_class: dict = {}
         for name in CLASSES:
             files = sorted((root / model / name).glob("*.npy"))
@@ -884,7 +888,7 @@ def verify_dataset(root: str | Path, config: SimulationConfig) -> dict:
 .venv/bin/python -m pytest tests/test_sim.py -q
 ```
 
-Expected: `29 passed`.
+Expected: `30 passed`.
 
 - [ ] **Step 5: Commit**
 
@@ -997,9 +1001,12 @@ Add to the imports of `lens_lejepa/sim/generate.py`:
 
 ```python
 import functools
+import logging
 from concurrent.futures import ProcessPoolExecutor
 
 from ..config import load_config
+
+logger = logging.getLogger(__name__)
 ```
 
 Append to `lens_lejepa/sim/generate.py`:
@@ -1007,12 +1014,7 @@ Append to `lens_lejepa/sim/generate.py`:
 ```python
 def _jobs(config: SimulationConfig) -> list[dict]:
     jobs: list[dict] = []
-    plan = (
-        ("Model_I", config.model_i_per_class),
-        ("Model_II", config.model_ii_per_class),
-        ("Model_II_test", config.model_ii_test_per_class),
-    )
-    for model, count in plan:
+    for model, count in _model_counts(config):
         for class_index, kind in enumerate(CLASSES):
             for index in range(count):
                 jobs.append({
@@ -1076,8 +1078,14 @@ def generate(config: SimulationConfig) -> dict:
                 pass
 
     report = verify_dataset(config.output_root, config)
+    counts = {
+        model: {name: entry["count"] for name, entry in classes.items()}
+        for model, classes in report["models"].items()
+    }
     if not report["ok"]:
+        logger.error("synthetic dataset at %s failed verification: %s", config.output_root, counts)
         raise RuntimeError(f"generated dataset failed verification: {_summarise(report)}")
+    logger.info("synthetic dataset at %s verified: %s", config.output_root, counts)
     return report
 
 
@@ -1095,7 +1103,7 @@ def generate_from_config(
 .venv/bin/python -m pytest tests/test_sim.py -q
 ```
 
-Expected: `34 passed`, roughly 10–20 seconds (18 renders in the serial/parallel test).
+Expected: `35 passed`, roughly 10–20 seconds (18 renders in the serial/parallel test).
 
 - [ ] **Step 5: Commit**
 
@@ -1255,7 +1263,7 @@ datasets_sim/
 .venv/bin/python -m pytest tests/test_sim.py -q
 ```
 
-Expected: `36 passed`.
+Expected: `37 passed`.
 
 Also check the lazy import:
 
@@ -1528,10 +1536,11 @@ git commit -m "docs(sim): record the measured generation time"
 
 **Files:**
 - Modify: `README.md`
+- Modify: `configs/data/sim.yaml` (record the measured learnability)
 
 **Interfaces:**
 - Consumes: the generated dataset (Task 10), `configs/pretrain/sim_smoke.yaml`, `configs/agent/campaign_sim.yaml`.
-- Produces: a checkpoint, a campaign artifact with a test accuracy, and the README section.
+- Produces: a checkpoint, a measured probe accuracy, a campaign artifact with a test accuracy, and the README section.
 
 - [ ] **Step 1: Check the agent dependencies are installed**
 
@@ -1550,16 +1559,42 @@ ls -lh runs/pretrain/lens_lejepa/sim_smoke_seed42/last_pretrain.pt
 
 Expected: the run completes without triggering the collapse guard, writes `last_pretrain.pt`, and finishes within the ~10 minute target. If the collapse guard fires, increase `epochs` or lower `lr` in the config, re-run, and record what changed.
 
-- [ ] **Step 3: Run one campaign iteration end to end**
+- [ ] **Step 3: Measure learnability with a one-epoch probe**
+
+```bash
+.venv/bin/python -m lens_lejepa finetune \
+  --config configs/downstream/classification.yaml \
+  --set data_root=../datasets_sim train_dataset=Model_II test_dataset=Model_II_test \
+        image_size=64 patch_size=8 backbone=vit_tiny \
+        pretrained=runs/pretrain/lens_lejepa/sim_smoke_seed42/last_pretrain.pt \
+        adaptation=linear_probe epochs=1 batch_size=64 val_interval=1 \
+        workers=2 device=cpu bf16=false run_name=sim_probe
+```
+
+Expected: a validation and a test accuracy above 3-class chance (0.33); record both numbers.
+
+- [ ] **Step 4: Run one campaign iteration end to end**
 
 ```bash
 time .venv/bin/python -m lens_lejepa agent-loop --config configs/agent/campaign_sim.yaml --set max_iterations=1 patience=1
 cat runs/agent/lens_lejepa_adapters_sim/campaign.md
 ```
 
-Expected: one iteration, a validation accuracy above 3-class chance (0.33), a single test evaluation, and no `FileNotFoundError`. If accuracy is at chance, adjust the physics knobs in `configs/data/sim.yaml` (`n_sub`, `sub_mass_min`) — regenerate only Model II with `--set model_i_per_class=...` — and document the change. Do not touch the loader or the task.
+Expected: one iteration, a validation accuracy above chance, a single test evaluation, and
+no `FileNotFoundError`. If the probe or the campaign is at chance, the classes are not
+separable at this scale: change the physics knobs in `configs/data/sim.yaml` (`n_sub`,
+`sub_mass_min`), delete `../datasets_sim`, regenerate the **whole** dataset, and re-run
+pretraining and the probe — all splits share one physics config, so a partial regeneration
+would mix recipes. Do not touch the loader or the task.
 
-- [ ] **Step 4: Document it**
+- [ ] **Step 5: Document it**
+
+Add the measured learnability to `configs/data/sim.yaml`:
+
+```yaml
+# Measured learnability (NOT paper-comparable): a one-epoch linear probe on Model II
+# scores <val> / <test> (3-class chance 0.33).
+```
 
 In `README.md`, insert after the DeepLense dataset table (before `## Quick start`):
 
@@ -1572,16 +1607,22 @@ It exists for CI, smoke runs and agent-loop demos.
 
 ```bash
 pip install -e ".[sim]"
-python -m lens_lejepa generate-data --config configs/data/sim.yaml     # ../datasets_sim, 5,601 images, ~3-4 min on 8 workers
+python -m lens_lejepa generate-data --config configs/data/sim.yaml     # ../datasets_sim, 5,601 images, <runtime measured in Task 10>
 python -m lens_lejepa pretrain --config configs/pretrain/sim_smoke.yaml
 python -m lens_lejepa agent-loop --config configs/agent/campaign_sim.yaml
 ```
+
+A one-epoch linear probe on Model II reaches <val> / <test> accuracy (chance 0.33) on the
+reference CPU — a plumbing check, not a result.
 
 **These are not the DeepLense images.** Nothing measured on them is comparable
 with the paper's numbers, and every run using them records `sim` in its name.
 The recipe and the deliberate deviations are documented in
 `docs/superpowers/specs/2026-10-23-synthetic-data-design.md`.
 ````
+
+Substitute the runtime measured in Task 10 and the accuracies measured in Step 3 for the
+angle-bracketed values.
 
 Then update the repository-layout block:
 
@@ -1596,7 +1637,7 @@ and the `configs/` line:
 configs/                 pretrain/*.yaml, downstream/*.yaml, agent/*.yaml, data/sim.yaml
 ```
 
-- [ ] **Step 5: Run the full suite one last time**
+- [ ] **Step 6: Run the full suite one last time**
 
 ```bash
 rm -rf /tmp/pytest-of-deansama && .venv/bin/python -m pytest -q
@@ -1604,10 +1645,10 @@ rm -rf /tmp/pytest-of-deansama && .venv/bin/python -m pytest -q
 
 Expected: all tests pass; `test_sim.py` runs (lenstronomy is installed) and the core tests are unaffected.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add README.md
+git add README.md configs/data/sim.yaml
 git commit -m "docs: document the synthetic bring-up workflow"
 ```
 
