@@ -1,0 +1,33 @@
+# CPU smoke pretraining on the synthetic bring-up dataset.
+#   python -m lens_lejepa pretrain --config configs/pretrain/sim_smoke.yaml
+#
+# The geometry MUST match configs/agent/campaign_sim.yaml: the encoder is
+# strict-loaded downstream, and image_size/patch_size change the state-dict
+# shapes. NOT paper-grade.
+method: lens_lejepa
+data_root: ../datasets_sim
+dataset: Model_I
+image_size: 64
+patch_size: 8
+encoder: vit_tiny
+projector_dim: 256
+epochs: 20
+batch_size: 64
+lr: 5.0e-4
+start_lr: 5.0e-5
+final_lr: 5.0e-7
+warmup_epochs: 2
+weight_decay: 0.05
+final_weight_decay: 0.05
+objective:
+  sigreg_weight: 0.02
+  sigreg_slices: 128
+  blur_probability: 0.5
+  blur_sigma_max: 1.0
+  noise_std_max: 0.03
+seed: 42
+workers: 2
+device: cpu
+bf16: false
+output_dir: runs
+run_name: sim_smoke_seed42

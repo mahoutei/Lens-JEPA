@@ -1,0 +1,47 @@
+# Agent campaign on the synthetic bring-up dataset.
+#   python -m lens_lejepa agent-loop --config configs/agent/campaign_sim.yaml
+#
+# NOT paper-grade: every metric here is measured on generated images and is not
+# comparable with the paper's DeepLense numbers.
+name: lens_lejepa_adapters_sim
+hypothesis: >-
+  Which adapter, rank and learning rate give the best validation accuracy on the
+  synthetic Model II with the 64 px / patch 8 geometry?
+
+task: classification
+data_root: ../datasets_sim
+train_dataset: Model_II
+test_dataset: Model_II_test
+shots: null
+seed: 42
+device: cpu
+bf16: false
+workers: 2
+
+image_size: 64
+patch_size: 8
+val_interval: 5
+
+max_iterations: 4
+patience: 2
+output_dir: runs/agent
+
+# One entry: encoder switching needs a second pretrain (configs/pretrain/lejepa.yaml
+# has the control). Adapters, ranks and learning rates are still searched.
+encoders:
+  - name: lens_lejepa
+    backbone: vit_tiny
+    method: lens_lejepa
+    pretrained: runs/pretrain/lens_lejepa/sim_smoke_seed42/last_pretrain.pt
+
+initial:
+  encoder: lens_lejepa
+  adaptation: rslora
+  rank: 32
+  alpha: 64.0
+  lr: 3.0e-4
+  weight_decay: 0.01
+  dropout: 0.0
+  epochs: 20
+  batch_size: 64
+  label_smoothing: 0.1
