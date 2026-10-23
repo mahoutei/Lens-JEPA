@@ -176,3 +176,81 @@ def test_config_builds_physics_from_a_nested_dict():
     config = SimulationConfig(physics={"n_sub": 10, "vortex_res": 50})
     assert config.physics.n_sub == 10
     assert config.physics.vortex_res == 50
+
+
+import shutil
+
+from lens_lejepa.data.io import load_axion_image_and_log_mass, load_lens_image
+from lens_lejepa.sim.generate import verify_dataset, write_image
+
+
+def _write_mini_dataset(root):
+    """One valid image per model/class, written directly, without rendering."""
+    for model in ("Model_I", "Model_II", "Model_II_test"):
+        for name in ("axion", "cdm", "no_sub"):
+            path = root / model / name / "sim_00000.npy"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            image = np.zeros((64, 64), dtype=np.float32)
+            image[32, 32] = 1.0
+            write_image(path, image, 1e-23 if name == "axion" else None)
+
+
+def _mini_config(root):
+    return SimulationConfig(
+        output_root=str(root),
+        workers=1,
+        model_i_per_class=1,
+        model_ii_per_class=1,
+        model_ii_test_per_class=1,
+    )
+
+
+def test_write_image_round_trips_an_axion_file(tmp_path):
+    path = tmp_path / "axion.npy"
+    image = np.zeros((64, 64), dtype=np.float32)
+    image[32, 32] = 1.0
+    write_image(path, image, 3e-24)
+
+    loaded, log_mass = load_axion_image_and_log_mass(path)
+    assert loaded.shape == (1, 64, 64)
+    assert log_mass == pytest.approx(np.log10(3e-24))
+
+
+def test_write_image_saves_plain_arrays_without_mass(tmp_path):
+    path = tmp_path / "image.npy"
+    write_image(path, np.ones((64, 64), dtype=np.float32))
+    assert load_lens_image(path).shape == (1, 64, 64)
+    assert np.load(path).dtype == np.float32
+
+
+def test_verify_accepts_a_complete_dataset(tmp_path):
+    _write_mini_dataset(tmp_path)
+    report = verify_dataset(tmp_path, _mini_config(tmp_path))
+    assert report["ok"]
+    assert report["models"]["Model_II"]["axion"]["count"] == 1
+
+
+def test_verify_flags_a_missing_class_folder(tmp_path):
+    _write_mini_dataset(tmp_path)
+    shutil.rmtree(tmp_path / "Model_II" / "cdm")
+    report = verify_dataset(tmp_path, _mini_config(tmp_path))
+    assert not report["ok"]
+    assert report["models"]["Model_II"]["cdm"]["count"] == 0
+    assert any("expected 1 files" in error for error in report["models"]["Model_II"]["cdm"]["errors"])
+
+
+def test_verify_flags_a_constant_image(tmp_path):
+    _write_mini_dataset(tmp_path)
+    np.save(tmp_path / "Model_II" / "no_sub" / "sim_00000.npy", np.zeros((64, 64), dtype=np.float32))
+    report = verify_dataset(tmp_path, _mini_config(tmp_path))
+    assert not report["ok"]
+    assert any("constant" in error for error in report["models"]["Model_II"]["no_sub"]["errors"])
+
+
+def test_verify_flags_an_axion_mass_outside_the_configured_range(tmp_path):
+    _write_mini_dataset(tmp_path)
+    path = tmp_path / "Model_II" / "axion" / "sim_00000.npy"
+    write_image(path, np.ones((64, 64), dtype=np.float32), 1e-22)
+    report = verify_dataset(tmp_path, _mini_config(tmp_path))
+    assert not report["ok"]
+    assert any("outside the configured range" in error for error in report["models"]["Model_II"]["axion"]["errors"])
