@@ -640,12 +640,8 @@ Generated data is for bring-up only — see the design doc.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
 
-import numpy as np
-from tqdm import tqdm
-
-from .lens import EUCLID_PIXEL_SCALE, LensParameters, axion_mass_to_length, simulate
+from .lens import EUCLID_PIXEL_SCALE, LensParameters, axion_mass_to_length
 
 CLASSES = ("axion", "cdm", "no_sub")  # this order defines the label indices 0/1/2
 _MODEL_IDS = {"Model_I": 0, "Model_II": 1, "Model_II_test": 2}
@@ -811,6 +807,10 @@ Expected: `ImportError: cannot import name 'verify_dataset'`.
 Add to the imports of `lens_lejepa/sim/generate.py`:
 
 ```python
+from pathlib import Path
+
+import numpy as np
+
 from ..data.io import load_axion_image_and_log_mass, load_lens_image
 ```
 
@@ -1004,7 +1004,10 @@ import functools
 import logging
 from concurrent.futures import ProcessPoolExecutor
 
+from tqdm import tqdm
+
 from ..config import load_config
+from .lens import simulate
 
 logger = logging.getLogger(__name__)
 ```
