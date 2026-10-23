@@ -1266,7 +1266,7 @@ datasets_sim/
 .venv/bin/python -m pytest tests/test_sim.py -q
 ```
 
-Expected: `40 passed`.
+Expected: `41 passed`.
 
 Also check the lazy import:
 
