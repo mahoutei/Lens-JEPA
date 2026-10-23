@@ -355,3 +355,22 @@ def test_generate_raises_when_verification_fails(tmp_path, monkeypatch):
     )
     with pytest.raises(RuntimeError, match="verification"):
         generate(_tiny_config(tmp_path))
+
+
+def test_generate_repairs_a_truncated_file(tmp_path):
+    config = SimulationConfig(
+        output_root=str(tmp_path),
+        workers=1,
+        model_i_per_class=1,
+        model_ii_per_class=1,
+        model_ii_test_per_class=1,
+    )
+    generate(config)
+    truncated = tmp_path / "Model_I" / "no_sub" / "sim_00000.npy"
+    original = truncated.read_bytes()
+    truncated.write_bytes(original[: len(original) // 2])
+
+    report = generate(config)
+
+    assert report["ok"]
+    assert truncated.read_bytes() == original

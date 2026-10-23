@@ -63,17 +63,43 @@ class SimulationConfig:
 
 
 def write_image(path: str | Path, image: np.ndarray, axion_mass: float | None = None) -> None:
-    """Write one image, using the object-array ``[image, mass]`` form for axions."""
+    """Write one image atomically, using the object-array ``[image, mass]`` form for axions."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     image = np.asarray(image, dtype=np.float32)
-    if axion_mass is None:
-        np.save(path, image)
-        return
-    payload = np.empty(2, dtype=object)
-    payload[0] = image
-    payload[1] = float(axion_mass)
-    np.save(path, payload, allow_pickle=True)
+    payload = image
+    if axion_mass is not None:
+        payload = np.empty(2, dtype=object)
+        payload[0] = image
+        payload[1] = float(axion_mass)
+    # Write beside the target and rename, so a crash never leaves a truncated
+    # .npy that resumption would treat as complete.
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "wb") as handle:
+        np.save(handle, payload, allow_pickle=axion_mass is not None)
+    tmp.replace(path)
+
+
+def _file_errors(path: Path, name: str, config: SimulationConfig) -> list[str]:
+    """Problems with one image file; empty means it is complete and valid."""
+    try:
+        if name == "axion":
+            image, log_mass = load_axion_image_and_log_mass(path)
+            lo = np.log10(config.axion_mass_min)
+            hi = np.log10(config.axion_mass_max)
+            if not lo - 1e-12 <= log_mass <= hi + 1e-12:
+                return [f"{path.name}: mass {10.0 ** log_mass:g} outside the configured range"]
+        else:
+            image = load_lens_image(path)
+    except Exception as exc:  # a malformed file must not abort the report
+        return [f"{path.name}: {exc}"]
+    if image.shape != (1, config.image_size, config.image_size):
+        return [f"{path.name}: shape {image.shape}"]
+    if not np.isfinite(image).all():
+        return [f"{path.name}: non-finite values"]
+    if float(image.std()) == 0.0:
+        return [f"{path.name}: constant image"]
+    return []
 
 
 def _model_counts(config: SimulationConfig) -> list[tuple[str, int]]:
@@ -103,24 +129,7 @@ def verify_dataset(root: str | Path, config: SimulationConfig) -> dict:
             for path in files:
                 if len(errors) >= 20:
                     break
-                try:
-                    if name == "axion":
-                        image, log_mass = load_axion_image_and_log_mass(path)
-                        lo = np.log10(config.axion_mass_min)
-                        hi = np.log10(config.axion_mass_max)
-                        if not lo - 1e-12 <= log_mass <= hi + 1e-12:
-                            errors.append(f"{path.name}: mass {10.0 ** log_mass:g} outside the configured range")
-                    else:
-                        image = load_lens_image(path)
-                except Exception as exc:  # a malformed file must not abort the report
-                    errors.append(f"{path.name}: {exc}")
-                    continue
-                if image.shape != (1, config.image_size, config.image_size):
-                    errors.append(f"{path.name}: shape {image.shape}")
-                elif not np.isfinite(image).all():
-                    errors.append(f"{path.name}: non-finite values")
-                elif float(image.std()) == 0.0:
-                    errors.append(f"{path.name}: constant image")
+                errors.extend(_file_errors(path, name, config))
             per_class[name] = {"count": len(files), "errors": errors}
             if errors:
                 report["ok"] = False
@@ -145,7 +154,9 @@ def _jobs(config: SimulationConfig) -> list[dict]:
 
 def _render_job(config: SimulationConfig, job: dict) -> str:
     path = Path(job["path"])
-    if path.exists():  # resumable: deterministic seeds make this safe
+    # Resumable: deterministic seeds make skipping safe. A file that exists but
+    # fails the same checks verification uses is re-rendered and replaced.
+    if path.exists() and not _file_errors(path, job["kind"], config):
         return str(path)
 
     rng = np.random.RandomState([config.seed, job["model_id"], job["class_index"], job["index"]])
