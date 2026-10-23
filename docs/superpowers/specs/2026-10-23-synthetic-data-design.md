@@ -67,7 +67,7 @@ and `sim_cdm_sis_2.py` (main branch, read 2026-10-23).
 |---|---|
 | Cosmology | `FlatLambdaCDM(H0=70, Om0=0.3, Ob0=0.05)` |
 | Redshifts | lens halo `z = 0.5`, source `z = 1.0` |
-| Main lens | `SIS`, `M = 1e12 M☉`, centre `(0, 0)`; `theta_E` from `sqrt(4GM/c² · D_LS/(D_L D_S))`, converted to arcsec |
+| Main lens | `SIS`, `M = 1e12 M☉`, centre `(0, 0)`; `theta_E` from `sqrt(4GM/c² · D_LS/(D_L D_S))`, converted to arcsec; distances are luminosity distances with `D_LS = D_S − D_L`, exactly as published |
 | Source | `SERSIC_ELLIPSE`, **magnitude** 20, `R_sersic = 0.25″`, `n = 1`, `e1 = -0.1`, `e2 = 0.1`, centre `U(-0.35, 0.35)²` arcsec |
 | Instrument | Euclid VIS, `psf_type="GAUSSIAN"`, `coadd_years=6`; pixel scale `0.101″/px` |
 | Render | `SimAPI(num_pix, kwargs_single_band, kwargs_model)` → `image_model_class({'point_source_supersampling_factor': 1})` → `magnitude2amplitude(None, kwargs_source)` → `image(...)` |
@@ -113,6 +113,12 @@ The mass **range** claim stands: `1e-25` is a 30″ vortex, five times the 6.46�
 
 We do not "correct" parameters we cannot validate. `z_source_convention: 2.5` next to
 `z_source: 1.0` is passed through verbatim.
+
+**Distance convention.** `einstein_radius` uses `luminosity_distance` and
+`D_LS = D_S − D_L`, exactly as published, giving `theta_E = 1.28″` for the default
+1e12 M☉ halo. The angular-diameter form would give 1.66″; we keep the published one so
+the images match DeepLense's, and the docstring says so. This is a deliberate port
+choice, not an oversight.
 
 ---
 
@@ -213,8 +219,9 @@ datasets_sim/
 └── Model_II_test/{axion,cdm,no_sub}/sim_00000.npy 200/class, 64 px
 ```
 
-Total 5,601 images. At 64 px × 0.101″/px the field is 6.46″, and a 1e12 M☉ SIS at
-z = 0.5 → 1.0 has `theta_E ≈ 1.5″` (≈ 15 px), so the ring is well inside the frame.
+Total 5,601 images. At 64 px × 0.101″/px the field is 6.46″, and the default 1e12 M☉
+SIS has `theta_E = 1.28″` under the published distance convention (≈ 13 px), so the
+ring is well inside the frame.
 
 Model I is generated at **64 px, not DeepLense's 150 px**. Our smoke pretrain runs at
 64 and `load_pretrained_encoder` strict-loads the encoder, so the arc scale must match
