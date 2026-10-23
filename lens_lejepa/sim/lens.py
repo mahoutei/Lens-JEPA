@@ -69,3 +69,58 @@ def einstein_radius(mass: float, z_halo: float, z_source: float) -> float:
     d_ls = d_s - d_l
     theta = np.sqrt(4.0 * _G_SI * mass * _M_SUN_KG / _C_SI**2 * d_ls / (d_l * d_s))
     return float(theta * _RAD_TO_ARCSEC)
+
+
+_CLASSES = ("no_sub", "cdm", "axion")
+
+
+def _draw_power_law(rng: np.random.RandomState, params: LensParameters) -> np.ndarray:
+    """Truncated power-law masses, as published in ``draw_old_cdm_sub_masses``."""
+    u = rng.uniform(0.0, 1.0, params.n_sub)
+    low = params.sub_mass_min ** (params.sub_beta + 1.0)
+    high = params.sub_mass_max ** (params.sub_beta + 1.0)
+    return (low + (high - low) * u) ** (1.0 / (params.sub_beta + 1.0))
+
+
+def build_lens(
+    kind: str,
+    params: LensParameters,
+    rng: np.random.RandomState,
+    axion_mass: float | None = None,
+) -> tuple[list[str], list[dict]]:
+    """Lens model list and kwargs for ``no_sub``, ``cdm`` or ``axion``."""
+    if kind not in _CLASSES:
+        raise ValueError(f"Unknown lens class {kind!r}; choose from {_CLASSES}.")
+    if (kind == "axion") != (axion_mass is not None):
+        raise ValueError("kind='axion' requires axion_mass, and only it accepts one.")
+
+    models = ["SIS"]
+    kwargs = [{
+        "theta_E": einstein_radius(params.main_halo_mass, params.z_halo, params.z_source),
+        "center_x": 0.0,
+        "center_y": 0.0,
+    }]
+
+    if kind == "cdm":
+        masses = _draw_power_law(rng, params)
+        radii = rng.uniform(params.sub_radius_min, params.sub_radius_max, params.n_sub)
+        angles = rng.uniform(0.0, 2.0 * np.pi, params.n_sub)
+        for mass, radius, angle in zip(masses, radii, angles):
+            models.append("POINT_MASS")
+            kwargs.append({
+                "theta_E": einstein_radius(mass, params.z_halo, params.z_source),
+                "center_x": float(radius * np.sin(angle)),
+                "center_y": float(radius * np.cos(angle)),
+            })
+    elif kind == "axion":
+        length = axion_mass_to_length(axion_mass)
+        element_mass = params.vortex_mass / params.vortex_res
+        angle = float(rng.uniform(0.0, 2.0 * np.pi))
+        for coord in np.linspace(-length, length, params.vortex_res):
+            models.append("POINT_MASS")
+            kwargs.append({
+                "theta_E": einstein_radius(element_mass, params.z_halo, params.z_source),
+                "center_x": float(coord * np.cos(angle)),
+                "center_y": float(coord * np.sin(angle)),
+            })
+    return models, kwargs
