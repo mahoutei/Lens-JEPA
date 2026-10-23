@@ -254,3 +254,33 @@ def test_verify_flags_an_axion_mass_outside_the_configured_range(tmp_path):
     report = verify_dataset(tmp_path, _mini_config(tmp_path))
     assert not report["ok"]
     assert any("outside the configured range" in error for error in report["models"]["Model_II"]["axion"]["errors"])
+
+
+@pytest.mark.parametrize("mass", [1e-24, 2e-23])
+def test_verify_accepts_axion_masses_at_the_configured_bounds(tmp_path, mass):
+    _write_mini_dataset(tmp_path)
+    image = np.zeros((64, 64), dtype=np.float32)
+    image[32, 32] = 1.0
+    write_image(tmp_path / "Model_II" / "axion" / "sim_00000.npy", image, mass)
+    report = verify_dataset(tmp_path, _mini_config(tmp_path))
+    assert report["ok"], report["models"]["Model_II"]["axion"]["errors"]
+
+
+def test_verify_caps_the_error_list_for_malformed_files(tmp_path):
+    config = SimulationConfig(
+        output_root=str(tmp_path),
+        workers=1,
+        model_i_per_class=25,
+        model_ii_per_class=1,
+        model_ii_test_per_class=1,
+    )
+    _write_mini_dataset(tmp_path)
+    axion_dir = tmp_path / "Model_I" / "axion"
+    for path in axion_dir.glob("*.npy"):
+        path.unlink()
+    for index in range(25):
+        (axion_dir / f"sim_{index:05d}.npy").write_bytes(b"not a npy file")
+
+    report = verify_dataset(tmp_path, config)
+    assert not report["ok"]
+    assert len(report["models"]["Model_I"]["axion"]["errors"]) <= 20

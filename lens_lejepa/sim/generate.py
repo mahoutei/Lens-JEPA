@@ -94,12 +94,15 @@ def verify_dataset(root: str | Path, config: SimulationConfig) -> dict:
             if len(files) != expected:
                 errors.append(f"expected {expected} files, found {len(files)}")
             for path in files:
+                if len(errors) >= 20:
+                    break
                 try:
                     if name == "axion":
                         image, log_mass = load_axion_image_and_log_mass(path)
-                        mass = 10.0 ** log_mass
-                        if not config.axion_mass_min <= mass <= config.axion_mass_max:
-                            errors.append(f"{path.name}: mass {mass:g} outside the configured range")
+                        lo = np.log10(config.axion_mass_min)
+                        hi = np.log10(config.axion_mass_max)
+                        if not lo - 1e-12 <= log_mass <= hi + 1e-12:
+                            errors.append(f"{path.name}: mass {10.0 ** log_mass:g} outside the configured range")
                     else:
                         image = load_lens_image(path)
                 except Exception as exc:  # a malformed file must not abort the report
@@ -111,8 +114,6 @@ def verify_dataset(root: str | Path, config: SimulationConfig) -> dict:
                     errors.append(f"{path.name}: non-finite values")
                 elif float(image.std()) == 0.0:
                     errors.append(f"{path.name}: constant image")
-                if len(errors) >= 20:
-                    break
             per_class[name] = {"count": len(files), "errors": errors}
             if errors:
                 report["ok"] = False
