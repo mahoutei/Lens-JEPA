@@ -1144,6 +1144,8 @@ def test_shipped_sim_config_matches_the_design():
     assert (config.model_i_per_class, config.model_ii_per_class, config.model_ii_test_per_class) == (667, 1000, 200)
     assert (config.axion_mass_min, config.axion_mass_max) == (1e-24, 2e-23)
     assert config.physics.n_sub == 25
+    assert config.physics.vortex_mass == 1e10
+    assert config.physics.vortex_res == 100
 
 
 def test_cli_generate_data(tmp_path):
@@ -1188,9 +1190,12 @@ axion_mass_min: 1.0e-24
 axion_mass_max: 2.0e-23
 physics:
   n_sub: 25
-  vortex_mass: 1.0e10
+  vortex_mass: 1.0e+10
   vortex_res: 100
 ```
+
+Keep the exponent sign: PyYAML parses `1.0e10` as a string and `1.0e+10` as a float; the
+string only fails at render time (`vortex_mass / vortex_res`).
 
 In `lens_lejepa/cli.py`, add to the module docstring:
 
@@ -1395,6 +1400,7 @@ seed: 42
 workers: 2
 device: cpu
 bf16: false
+collapse_patience: 100  # smoke run: the guard is for real runs (see README)
 output_dir: runs
 run_name: sim_smoke_seed42
 ```
@@ -1560,7 +1566,7 @@ time .venv/bin/python -m lens_lejepa pretrain --config configs/pretrain/sim_smok
 ls -lh runs/pretrain/lens_lejepa/sim_smoke_seed42/last_pretrain.pt
 ```
 
-Expected: the run completes without triggering the collapse guard, writes `last_pretrain.pt`, and finishes within the ~10 minute target. If the collapse guard fires, increase `epochs` or lower `lr` in the config, re-run, and record what changed.
+Expected: 20/20 epochs, `last_pretrain.pt` written, ~30 minutes (~29m23s measured on the reference CPU; the ≤10 minute target was missed). The smoke config sets `collapse_patience: 100` per the README's smoke-run convention, so the guard must not fire. If it does, stop and report — do not raise thresholds or change `lr` to silence it.
 
 - [ ] **Step 3: Measure learnability with a one-epoch probe**
 
@@ -1611,15 +1617,17 @@ It exists for CI, smoke runs and agent-loop demos.
 ```bash
 pip install -e ".[sim]"
 python -m lens_lejepa generate-data --config configs/data/sim.yaml     # ../datasets_sim, 5,601 images, <runtime measured in Task 10>
-python -m lens_lejepa pretrain --config configs/pretrain/sim_smoke.yaml
+python -m lens_lejepa pretrain --config configs/pretrain/sim_smoke.yaml   # 20 epochs, <pretrain runtime measured in Task 11>
 python -m lens_lejepa agent-loop --config configs/agent/campaign_sim.yaml
 ```
 
-A one-epoch linear probe on Model II reaches <val> / <test> accuracy (chance 0.33) on the
-reference CPU — a plumbing check, not a result.
+A one-epoch linear probe on Model II is near 3-class chance (<val> / <test> vs 0.33) — a
+plumbing check, not a result. One 20-epoch campaign iteration (rsLoRA) reaches <campaign
+val> / <campaign test> accuracy on the same data; that is the separability evidence.
 
 **These are not the DeepLense images.** Nothing measured on them is comparable
-with the paper's numbers, and every run using them records `sim` in its name.
+with the paper's numbers, and the pretraining and campaign runs record `sim` in
+their names.
 The recipe and the deliberate deviations are documented in
 `docs/superpowers/specs/2026-10-23-synthetic-data-design.md`.
 ````

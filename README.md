@@ -94,15 +94,17 @@ It exists for CI, smoke runs and agent-loop demos.
 ```bash
 pip install -e ".[sim]"
 python -m lens_lejepa generate-data --config configs/data/sim.yaml     # ../datasets_sim, 5,601 images, 30 s
-python -m lens_lejepa pretrain --config configs/pretrain/sim_smoke.yaml
+python -m lens_lejepa pretrain --config configs/pretrain/sim_smoke.yaml   # 20 epochs, ~29 min on the reference CPU
 python -m lens_lejepa agent-loop --config configs/agent/campaign_sim.yaml
 ```
 
-A one-epoch linear probe on Model II reaches 0.3417 / 0.3433 accuracy (chance 0.33) on the
-reference CPU — a plumbing check, not a result.
+A one-epoch linear probe on Model II is near 3-class chance (0.3417 / 0.3433 vs 0.33) — a
+plumbing check, not a result. One 20-epoch campaign iteration (rsLoRA) reaches 0.5583
+validation / 0.5767 test accuracy on the same data; that is the separability evidence.
 
 **These are not the DeepLense images.** Nothing measured on them is comparable
-with the paper's numbers, and every run using them records `sim` in its name.
+with the paper's numbers, and the pretraining and campaign runs record `sim` in
+their names.
 The recipe and the deliberate deviations are documented in
 `docs/superpowers/specs/2026-10-23-synthetic-data-design.md`.
 

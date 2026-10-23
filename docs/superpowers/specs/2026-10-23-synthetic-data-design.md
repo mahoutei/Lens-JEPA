@@ -244,9 +244,13 @@ axion_mass_min: 1.0e-24
 axion_mass_max: 2.0e-23
 physics:
   n_sub: 25
-  vortex_mass: 1.0e10
+  vortex_mass: 1.0e+10
   vortex_res: 100
 ```
+
+The exponent sign is required: PyYAML parses `1.0e10` as a string and `1.0e+10` as a
+float. The string form only fails at render time (`vortex_mass / vortex_res`), so it is
+pinned by a test on the shipped config.
 
 `SimulationConfig` is a dataclass loaded with the existing `load_config` (unknown keys
 rejected), with `physics` constructed in `__post_init__` when given as a dict — the same
@@ -272,7 +276,8 @@ silently rendered as a featureless field.
 | `data_root` / `dataset` | `../datasets_sim` / `Model_I` | generated data |
 | `image_size` / `patch_size` | 64 / 8 | 8×8 patch grid, D4 acts exactly; matches downstream |
 | `encoder` | `vit_tiny` | CPU minutes, not hours |
-| `epochs` / `batch_size` | 20 / 64 | target ≤ 10 min CPU, measured and recorded |
+| `epochs` / `batch_size` | 20 / 64 | 29m23s measured on the reference CPU; the ≤10 min target was missed and the full 20 epochs kept |
+| `collapse_patience` | 100 | the guard is for real runs; smoke runs disable it (README convention) |
 | `device` / `bf16` | `cpu` / `false` | no GPU in the demo path |
 | `workers` | 2 | CPU contention |
 | `output_dir` / `run_name` | `runs` / `sim_smoke_seed42` | checkpoint at `runs/pretrain/lens_lejepa/sim_smoke_seed42/last_pretrain.pt` |
