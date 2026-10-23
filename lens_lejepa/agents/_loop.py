@@ -33,6 +33,7 @@ class LensJepaRun(ExperimentRun):
     spec: DownstreamSpec
     collapsed: bool = False
     rejection: str | None = None
+    applied: bool = False
 
 
 class LensJepaState(ExperimentState):
@@ -97,7 +98,7 @@ These are FIXED for the whole campaign and must never appear in updated_params:
   val_fraction, cache, image_size, patch_size, seed, val_interval, device, bf16,
   workers, grad_accum, loraplus_ratio, train_jitter, rank_schedule, output_dir,
   max_iterations, patience, min_val_delta, min_val_above_chance, encoders,
-  initial, name, hypothesis.
+  initial, name, hypothesis, max_steps_per_epoch.
 
 Populate updated_params with the changed field(s) only, and rationale with your
 diagnosis citing the observed numbers. Do not repeat a change that already failed
@@ -182,6 +183,7 @@ async def run_campaign(
             break
         try:
             spec = validate_delta(spec, decision.updated_params, campaign)
+            run.applied = True
         except ValueError as error:
             # Keep the collapse reason too: both are why this iteration did not count.
             run.rejection = f"{run.rejection}; {error}" if run.rejection else str(error)
@@ -214,6 +216,12 @@ def _iterations(state: LensJepaState) -> list[dict[str, Any]]:
             "rejection": run.rejection,
             "run_dir": run.train_result.run_id if run.train_result is not None else None,
             "rationale": run.planner_decision.rationale if run.planner_decision is not None else None,
+            "decision": (
+                run.planner_decision.model_dump(mode="json")
+                if run.planner_decision is not None
+                else None
+            ),
+            "applied": run.applied,
         })
     return rows
 
@@ -253,15 +261,24 @@ def _markdown(payload: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def finalize(result: CampaignResult, campaign: CampaignSpec) -> dict[str, Any]:
-    """Score the selected checkpoint on the test set once, then write the artifacts."""
-    output = campaign.output_path
-    marker = output / "campaign.json"
+def _ensure_not_finalized(campaign: CampaignSpec) -> None:
+    """Refuse to run a campaign whose artifacts already exist.
+
+    Re-training would overwrite the checkpoints ``campaign.json`` points at,
+    and a finalized campaign must never score its test set twice.
+    """
+    marker = campaign.output_path / "campaign.json"
     if marker.exists():
         raise RuntimeError(
             f"Campaign {campaign.name!r} has already been finalized ({marker}); "
             "run it under a new campaign name instead of scoring the test set twice."
         )
+
+
+def finalize(result: CampaignResult, campaign: CampaignSpec) -> dict[str, Any]:
+    """Score the selected checkpoint on the test set once, then write the artifacts."""
+    output = campaign.output_path
+    _ensure_not_finalized(campaign)
     output.mkdir(parents=True, exist_ok=True)
 
     test_metrics: dict[str, Any] | None = None
@@ -310,6 +327,7 @@ async def run_from_config(path: str | None = None, overrides: list[str] | None =
     from ..config import load_yaml_with_overrides
 
     campaign = CampaignSpec(**load_yaml_with_overrides(path, overrides))
+    _ensure_not_finalized(campaign)
     live = bool(os.getenv("DLENS_LLM") or os.getenv("OPENAI_API_KEY"))
     logger.info(
         "campaign %s | %d iterations | %s | encoders: %s",

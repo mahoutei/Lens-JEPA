@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+pytest.importorskip("dlens")
+
 from lens_lejepa.agents._spec import CampaignSpec, DownstreamSpec, validate_delta
 from lens_lejepa.data import CLASSES
 
@@ -624,3 +626,211 @@ def test_two_campaigns_with_the_same_seed_agree(fake_root, tmp_path):
     assert len(accuracies[0]) == 1  # the comparison is not vacuous
     assert accuracies[0] == accuracies[1]
     assert accuracies[0][0] > 1 / len(CLASSES)  # and it is not a coincidence at chance
+
+
+def test_two_campaigns_with_the_same_output_dir_do_not_share_run_directories(fake_root, tmp_path):
+    """Runs land under their own campaign, so a second campaign cannot overwrite the first."""
+    import asyncio
+
+    from lens_lejepa.agents._backends import LensJepaInferBackend, LensJepaTrainBackend
+    from lens_lejepa.agents._loop import run_campaign
+
+    root = tmp_path / "runs"
+    campaigns = [
+        _tiny_campaign(fake_root, tmp_path, name=name, output_dir=str(root), max_iterations=1)
+        for name in ("a", "b")
+    ]
+    checkpoints = []
+    for campaign in campaigns:
+        result = asyncio.run(run_campaign(
+            campaign, ScriptedPlanner([]),
+            train_backend=LensJepaTrainBackend(campaign),
+            infer_backend=LensJepaInferBackend(campaign),
+        ))
+        checkpoints.append(Path(result.best_checkpoint))
+
+    first, second = checkpoints
+    assert first != second
+    assert campaigns[0].output_path in first.parents
+    assert campaigns[1].output_path not in first.parents
+    assert campaigns[1].output_path in second.parents
+    assert campaigns[0].output_path not in second.parents
+
+
+def test_run_from_config_refuses_a_finalized_campaign_before_training(fake_root, tmp_path, monkeypatch):
+    """Re-running over existing weights would make campaign.json describe the wrong checkpoint."""
+    import asyncio
+
+    import lens_lejepa.agents._loop as loop_module
+    from lens_lejepa.agents import run_from_config
+
+    monkeypatch.delenv("DLENS_LLM", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    config = tmp_path / "campaign.yaml"
+    config.write_text(
+        f"name: demo\n"
+        f"task: classification\n"
+        f"data_root: {fake_root.parent}\n"
+        f"train_dataset: {fake_root.name}\n"
+        f"test_dataset: {fake_root.name}\n"
+        f"image_size: 32\n"
+        f"device: cpu\n"
+        f"bf16: false\n"
+        f"workers: 0\n"
+        f"val_interval: 1\n"
+        f"max_iterations: 1\n"
+        f"output_dir: {tmp_path / 'runs'}\n"
+        f"encoders:\n"
+        f"  - name: vit_small\n"
+        f"    backbone: vit_tiny\n"
+        f"initial:\n"
+        f"  encoder: vit_small\n"
+        f"  adaptation: linear_probe\n"
+        f"  epochs: 1\n"
+        f"  batch_size: 8\n"
+    )
+    marker = tmp_path / "runs" / "demo" / "campaign.json"
+    marker.parent.mkdir(parents=True)
+    marker.write_text("{}")
+
+    trained = []
+    original = loop_module.LensJepaTrainBackend.train
+    monkeypatch.setattr(
+        loop_module.LensJepaTrainBackend, "train",
+        lambda self, spec, run_name: trained.append(run_name) or original(self, spec, run_name),
+    )
+
+    with pytest.raises(RuntimeError, match="already been finalized"):
+        asyncio.run(run_from_config(str(config)))
+
+    assert trained == []  # the guard fired before the loop started
+    assert not list((tmp_path / "runs").rglob("iter*"))  # and nothing was written
+
+
+def test_a_non_numeric_value_is_rejected_as_a_value_error():
+    """The loop catches ValueError; a None or a list must not escape as TypeError."""
+    for updates in ({"lr": None}, {"epochs": [3]}):
+        with pytest.raises(ValueError, match="must be a number"):
+            validate_delta(DownstreamSpec(), updates)
+
+
+def test_a_non_numeric_change_is_rejected_and_the_campaign_continues(fake_root, tmp_path):
+    import asyncio
+
+    from lens_lejepa.agents._loop import run_campaign
+
+    campaign = _tiny_campaign(fake_root, tmp_path, max_iterations=2)
+    planner = ScriptedPlanner([
+        {"action": "train", "rationale": "null lr", "updated_params": {"lr": None}},
+        {"action": "train", "rationale": "done", "updated_params": {}},
+    ])
+    result = asyncio.run(run_campaign(
+        campaign, planner,
+        train_backend=ScriptedTrainBackend(tmp_path),
+        infer_backend=ScriptedInferBackend([1.0, 1.0]),
+    ))
+    assert len(result.state.runs) == 2  # the rejection did not kill the campaign
+    assert "must be a number" in (result.state.runs[0].rejection or "")
+    assert result.state.runs[0].applied is False
+    assert result.state.runs[1].spec.lr == campaign.initial.lr  # the bad value was not applied
+
+
+def test_an_unknown_spec_key_is_rejected():
+    """A typo must fail loudly, not silently leave shots at None."""
+    with pytest.raises(ValueError):
+        CampaignSpec(**{"shootz": 100})
+    with pytest.raises(ValueError):
+        CampaignSpec(initial={"lr": 1e-3, "epochz": 3})
+    with pytest.raises(ValueError):
+        CampaignSpec(encoders=[{"name": "vit_small", "backbone": "vit_tiny", "typo": 1}])
+
+
+def test_the_loop_never_opens_the_test_dataset(fake_root, tmp_path):
+    """A test root that does not exist cannot hurt the loop; only finalize reads it."""
+    import asyncio
+
+    from lens_lejepa.agents._backends import LensJepaInferBackend, LensJepaTrainBackend
+    from lens_lejepa.agents._loop import run_campaign
+
+    campaign = _tiny_campaign(
+        fake_root, tmp_path, test_dataset="there_is_no_test_set", max_iterations=2,
+    )
+    planner = ScriptedPlanner([
+        {"action": "train", "rationale": "first", "updated_params": {}},
+        {"action": "train", "rationale": "second", "updated_params": {}},
+    ])
+    result = asyncio.run(run_campaign(
+        campaign, planner,
+        train_backend=LensJepaTrainBackend(campaign),
+        infer_backend=LensJepaInferBackend(campaign),
+    ))
+    assert len(result.state.runs) == 2
+    assert all(run.infer_result is not None for run in result.state.runs)
+
+
+def test_the_campaign_artifact_records_each_decision_and_whether_it_was_applied(fake_root, tmp_path):
+    import asyncio
+
+    from lens_lejepa.agents._loop import finalize, run_campaign
+
+    campaign = _tiny_campaign(fake_root, tmp_path, test_dataset=None, max_iterations=2)
+    planner = ScriptedPlanner([
+        {"action": "train", "rationale": "lower the lr", "updated_params": {"lr": 1e-3}},
+        {"action": "train", "rationale": "bad rank", "updated_params": {"rank": 0}},
+    ])
+    result = asyncio.run(run_campaign(
+        campaign, planner,
+        train_backend=ScriptedTrainBackend(tmp_path),
+        infer_backend=ScriptedInferBackend([1.0, 1.0]),
+    ))
+    payload = finalize(result, campaign)
+    rows = payload["iterations"]
+
+    assert rows[0]["applied"] is True
+    assert rows[0]["decision"]["action"] == "train"
+    assert rows[0]["decision"]["updated_params"] == {"lr": 1e-3}
+    assert rows[1]["applied"] is False
+    assert rows[1]["decision"]["action"] == "train"
+    assert rows[1]["decision"]["updated_params"] == {"rank": 0}
+    assert "outside the allowed range" in rows[1]["rejection"]
+    assert (campaign.output_path / "campaign.json").exists()
+
+
+def test_max_steps_per_epoch_reaches_the_finetune_config(fake_root, tmp_path):
+    from lens_lejepa.agents._backends import build_finetune_config
+
+    campaign = _tiny_campaign(fake_root, tmp_path, max_steps_per_epoch=2)
+    config = build_finetune_config(campaign, campaign.initial, "iter00")
+    assert config.max_steps_per_epoch == 2
+
+    default = build_finetune_config(_tiny_campaign(fake_root, tmp_path), campaign.initial, "iter00")
+    assert default.max_steps_per_epoch is None
+
+
+def test_the_agent_tests_are_skipped_without_dlens():
+    """A core install must skip this file, not fail to collect it."""
+    import subprocess
+    import sys
+
+    probe = (
+        "import sys\n"
+        "class Block:\n"
+        "    def find_spec(self, name, path=None, target=None):\n"
+        "        if name == 'dlens' or name.startswith('dlens.'):\n"
+        "            raise ModuleNotFoundError(name)\n"
+        "        return None\n"
+        "sys.meta_path.insert(0, Block())\n"
+        "import pytest\n"
+        f"raise SystemExit(pytest.main(['-q', {str(Path(__file__))!r}]))\n"
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True, text=True,
+        cwd=str(Path(__file__).resolve().parent.parent),
+    )
+    # A module-level skip collects no tests, so pytest exits 5 even though it skipped cleanly.
+    assert done.returncode in (0, 5), done.stdout + done.stderr
+    assert "skipped" in done.stdout
+    assert "error" not in (done.stdout + done.stderr).lower()
+
+

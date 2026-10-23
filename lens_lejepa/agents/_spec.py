@@ -12,13 +12,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..models.adapters import canonical_adapter_name
 
 
 class EncoderSpec(BaseModel):
     """One pretrained encoder in the pool."""
+
+    model_config = ConfigDict(extra="forbid")
 
     name: str = Field(description="Identifier the planner uses to select it.")
     backbone: str = Field(description="Encoder name, e.g. vit_small.")
@@ -28,6 +30,8 @@ class EncoderSpec(BaseModel):
 
 class DownstreamSpec(BaseModel):
     """The fields the planner is allowed to change."""
+
+    model_config = ConfigDict(extra="forbid")
 
     encoder: str = "lens_lejepa"
     adaptation: str = "rslora"
@@ -43,6 +47,8 @@ class DownstreamSpec(BaseModel):
 
 class CampaignSpec(BaseModel):
     """Everything the planner may not change, plus the pool it may choose from."""
+
+    model_config = ConfigDict(extra="forbid")
 
     name: str = "campaign"
     hypothesis: str = ""
@@ -62,6 +68,7 @@ class CampaignSpec(BaseModel):
     bf16: bool = True
     workers: int = 8
     grad_accum: int = 1
+    max_steps_per_epoch: int | None = None
     loraplus_ratio: float = 2.0
     train_jitter: int = 0
     rank_schedule: list[int] = [8, 16, 32, 64]
@@ -136,7 +143,10 @@ def validate_delta(
             canonical_adapter_name(str(value))
             continue
         low, high = DOMAINS[key]
-        number = float(value)
+        try:
+            number = float(value)
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"{key}={value!r} must be a number.") from error
         if not low <= number <= high:
             raise ValueError(f"{key}={value!r} is outside the allowed range [{low}, {high}].")
         if key in INTEGER_FIELDS and int(number) != number:

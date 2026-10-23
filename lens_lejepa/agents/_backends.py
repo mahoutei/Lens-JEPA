@@ -47,6 +47,7 @@ def build_finetune_config(campaign: CampaignSpec, spec: DownstreamSpec, run_name
         epochs=spec.epochs,
         batch_size=spec.batch_size,
         grad_accum=campaign.grad_accum,
+        max_steps_per_epoch=campaign.max_steps_per_epoch,
         lr=spec.lr,
         weight_decay=spec.weight_decay,
         label_smoothing=spec.label_smoothing,
@@ -56,7 +57,7 @@ def build_finetune_config(campaign: CampaignSpec, spec: DownstreamSpec, run_name
         seed=campaign.seed,
         workers=campaign.workers,
         device=campaign.device,
-        output_dir=str(campaign.output_dir),
+        output_dir=str(campaign.output_path),
         run_name=run_name,
     )
 
