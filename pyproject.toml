@@ -29,6 +29,9 @@ agent = [
     "loguru>=0.7",
     "python-dotenv>=1.0",
 ]
+# Synthetic bring-up data generation (lenstronomy). Not needed for training
+# or evaluation; see configs/data/sim.yaml and README "Synthetic dataset".
+sim = ["lenstronomy>=1.14,<2"]
 
 [project.scripts]
 lens-lejepa = "lens_lejepa.cli:main"
