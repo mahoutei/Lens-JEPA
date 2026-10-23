@@ -86,3 +86,16 @@ Everything else (adapters, bf16 training, validation schedule, best-checkpoint s
 
 Add a case to `tests/test_pipeline.py::test_finetune_and_evaluate`. The `fake_root` fixture in `tests/conftest.py`
 builds a tiny dataset on disk, so the test runs on CPU in seconds.
+
+## 5. Making a task agent-drivable
+
+The agent campaign (`python -m lens_lejepa agent-loop`) drives the
+classification task today. To add a task, it needs:
+
+- a `monitor` and `higher_is_better` (already part of the `Task` interface),
+- an analysis the agent can read: the campaign uses DLens' `compute_analysis`,
+  which expects per-class predictions and labels, so it is classification-shaped,
+- a `collect` that returns `probabilities` and `labels` under those names.
+
+Everything else — adapters, bf16 training, validation schedule, best-checkpoint
+selection, held-out evaluation — is inherited from the task and the engine.

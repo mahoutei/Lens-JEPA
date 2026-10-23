@@ -199,6 +199,40 @@ tests/                   unit and end-to-end tests
 
 
 
+## Agent workflow
+
+The downstream experiments can also be driven by an agent, using the
+[DLens](https://github.com/ML4SCI/DeepLense-AI-Scientist) multi-agent framework.
+A planner reads the campaign history and proposes the next configuration
+(encoder, adapter family, rank, learning rate, ...) from the observed validation
+metrics; our own engine trains it.
+
+```bash
+pip install -e ".[agent]"                   # pydantic-ai, loguru, python-dotenv
+bash scripts/install_agent_deps.sh          # DLens itself, pinned, plus mcp<2
+python -m lens_lejepa agent-loop --config configs/agent/campaign.yaml
+```
+
+The agent path needs Python ≥ 3.12, the version DLens itself requires. The loop
+is **offline by default** — DLens' scripted planner, no API key, fully
+deterministic — and goes live when `DLENS_LLM` or `OPENAI_API_KEY` is set.
+
+| Rule | Why |
+|---|---|
+| The planner may change only the encoder, the adapter and the hyper-parameters | the task, the data, the label budget and the seed are fixed for the campaign, so every iteration is a fair comparison |
+| The test set is scored once, after the loop | the planner must never see it |
+| An unknown or out-of-range change is rejected and reported back | a silently dropped change makes the loop repeat itself |
+| A collapsed run is flagged and never selected | it would otherwise be reported as the outcome |
+| The selected configuration is the best validation result, not the last | the last iteration may have been a failed intervention |
+
+Artifacts land in `runs/agent/<campaign>/`: `campaign.json` (the full history),
+`campaign.md` (the table) and `report.json` (the agent's narrative). The
+per-iteration training runs go into the campaign's `output_dir` (`runs/agent/` by
+default), under `<task>/<backbone>_<adaptation>/<iteration-run-name>/`.
+
+The campaign reads the DeepLense datasets described above, so point `data_root`
+at them (`--set data_root=../datasets`) before running it.
+
 ## Acknowledgements
 
 Developed during Google Summer of Code 2026 with [ML4SCI](https://ml4sci.org/) (DeepLense). The ViT follows the

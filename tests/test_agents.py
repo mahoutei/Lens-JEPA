@@ -309,6 +309,41 @@ def test_the_loop_runs_offline_and_records_every_iteration(fake_root, tmp_path):
     assert result.best_checkpoint.endswith("best.pt")
 
 
+def test_the_dlens_planner_strategy_drives_our_loop(fake_root, tmp_path):
+    """DLens' own planner, inside our loop: its change reaches the next iteration."""
+    import asyncio
+
+    from dlens.agents._base import BaseAgentConfig
+    from dlens.agents._experiment_planner import ExperimentPlanner, ReActPlannerStrategy
+    from dlens.agents._scripted_planner import make_scripted_planner_model
+    from dlens.schemas._experiment import PlannerAction
+
+    from lens_lejepa.agents._backends import LensJepaInferBackend, LensJepaTrainBackend
+    from lens_lejepa.agents._loop import build_planner_prompt, run_campaign
+
+    campaign = _tiny_campaign(fake_root, tmp_path, max_iterations=2)
+    config = BaseAgentConfig(
+        name="LensJepaPlanner",
+        description="Chooses the next downstream configuration for a Lens-JEPA campaign.",
+        custom_system_prompt=build_planner_prompt(campaign),
+        model=make_scripted_planner_model([
+            {"action": "train", "rationale": "try a different adapter", "updated_params": {"adaptation": "lora"}},
+            {"action": "report", "rationale": "done", "updated_params": {}},
+        ]),
+    )
+    planner = ReActPlannerStrategy(planner=ExperimentPlanner(config=config))
+
+    result = asyncio.run(run_campaign(
+        campaign, planner,
+        train_backend=LensJepaTrainBackend(campaign),
+        infer_backend=LensJepaInferBackend(campaign),
+    ))
+    assert len(result.state.runs) == 2
+    assert result.state.runs[0].planner_decision.action == PlannerAction.TRAIN
+    assert result.state.runs[0].spec.adaptation == "linear_probe"
+    assert result.state.runs[1].spec.adaptation == "lora"  # the planner's change was applied
+
+
 def test_a_rejected_change_is_recorded_and_the_campaign_continues(fake_root, tmp_path):
     import asyncio
 
