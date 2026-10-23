@@ -1106,7 +1106,7 @@ def generate_from_config(
 .venv/bin/python -m pytest tests/test_sim.py -q
 ```
 
-Expected: `35 passed`, roughly 10–20 seconds (18 renders in the serial/parallel test).
+Expected: `38 passed`, roughly 10–20 seconds (18 renders in the serial/parallel test).
 
 - [ ] **Step 5: Commit**
 
@@ -1266,7 +1266,7 @@ datasets_sim/
 .venv/bin/python -m pytest tests/test_sim.py -q
 ```
 
-Expected: `37 passed`.
+Expected: `40 passed`.
 
 Also check the lazy import:
 
