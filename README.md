@@ -174,15 +174,16 @@ measured before that fix and should be re-measured.
 ```
 lens_lejepa/
 ├── config.py            typed configs (defaults = paper settings), YAML + --set overrides
-├── cli.py               python -m lens_lejepa {pretrain, finetune, evaluate, tasks}
+├── cli.py               python -m lens_lejepa {pretrain, finetune, evaluate, tasks, agent-loop}
+├── agents/              the agent campaign: campaign specs, the DLens-backed loop, artifacts
 ├── metrics.py           classification / regression / super-resolution metrics
 ├── data/                io.py (npy loading, preprocessing), datasets.py, splits.py
 ├── models/              vit.py, lens_jepa.py, masking.py, heads.py, adapters.py, supervised.py, baselines.py
 ├── ssl/                 sigreg.py, views.py, lens_priors.py, objective.py, masked_jepa.py, diagnostics.py
 ├── tasks/               base.py (the Task interface), classification.py, regression.py, super_resolution.py
 └── engine/              pretrain.py, finetune.py (training, model selection, evaluation)
-configs/                 pretrain/*.yaml, downstream/*.yaml
-scripts/                 reproduce_paper.sh, collect_results.py
+configs/                 pretrain/*.yaml, downstream/*.yaml, agent/campaign.yaml
+scripts/                 reproduce_paper.sh, collect_results.py, install_agent_deps.sh
 tests/                   unit and end-to-end tests
 ```
 
