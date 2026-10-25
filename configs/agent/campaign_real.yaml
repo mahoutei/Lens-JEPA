@@ -1,0 +1,47 @@
+# Agent campaign on the real 64x64 DeepLense Model II subset.
+#   python -m lens_lejepa agent-loop --config configs/agent/campaign_real.yaml
+#
+# Real images, real-pretrained encoder: no synthetic data in this path. The
+# 3,000-image subset is CPU-scale, and Model_II_test is a held-out slice of the
+# 89,104-image corpus (the official DeepLense test split is not downloadable).
+# NOT paper-scale: 64 px / vit_tiny / 20 pretrain epochs.
+name: lens_lejepa_real_pretrained
+hypothesis: >-
+  What validation accuracy does the real-pretrained 64 px / patch 8 encoder
+  reach on real Model II with the default rsLoRA adapters?
+
+task: classification
+data_root: ../datasets
+train_dataset: Model_II
+test_dataset: Model_II_test
+shots: null
+seed: 42
+device: cpu
+bf16: false
+workers: 2
+
+image_size: 64
+patch_size: 8
+val_interval: 5
+
+max_iterations: 1
+patience: 1
+output_dir: runs/agent
+
+encoders:
+  - name: lens_lejepa
+    backbone: vit_tiny
+    method: lens_lejepa
+    pretrained: runs/pretrain/lens_lejepa/real_model_ii_64_seed42/last_pretrain.pt
+
+initial:
+  encoder: lens_lejepa
+  adaptation: rslora
+  rank: 32
+  alpha: 64.0
+  lr: 3.0e-4
+  weight_decay: 0.01
+  dropout: 0.0
+  epochs: 20
+  batch_size: 64
+  label_smoothing: 0.1

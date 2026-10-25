@@ -85,6 +85,52 @@ identical on every machine.
 | Model II | 89,104 | 15,000 | classification (few-shot + full), regression, SR |
 | Model III | 89,396 | 15,000 | classification, regression, SR (full data) |
 
+### Real 64x64 Model II data (CPU subset)
+
+The original DeepLenseSim Google Drive links return 404. The live 64x64 Model II
+release is Dataset1 from the MAE paper
+([`achmadardanip/mae-lensing`](https://github.com/achmadardanip/mae-lensing)):
+89,104 images (axion 29,896 / cdm 29,759 / no_sub 29,449) as float32 `.npy`
+files. The official 15,000-image test split is not in this mirror, so hold one
+out yourself.
+
+```bash
+mkdir -p ../datasets_real
+curl -L -o ../datasets_real/Dataset1.zip \
+  "https://drive.usercontent.google.com/download?id=1znqUeFzYz-DeAE3dYXD17qoMPK82Whji&export=download&confirm=t"   # 2.9 GB
+unzip -q ../datasets_real/Dataset1.zip 'Dataset/*' -d ../datasets_real
+```
+
+Stage 1,000 images/class for training and a disjoint 500/class for testing:
+
+```bash
+python - <<'PY'
+from pathlib import Path
+import shutil
+src, dst = Path("../datasets_real/Dataset"), Path("../datasets")
+for name in ("axion", "cdm", "no_sub"):
+    files = sorted((src / name).glob("*.npy"))
+    for split, subset in (("Model_II", files[:1000]), ("Model_II_test", files[1000:1500])):
+        (dst / split / name).mkdir(parents=True, exist_ok=True)
+        for f in subset:
+            shutil.copy2(f, dst / split / name / f.name)
+PY
+```
+
+Then run the fully real CPU pipeline (no synthetic data):
+
+```bash
+python -m lens_lejepa pretrain --config configs/pretrain/real_model_ii_64.yaml   # 20 epochs, ~46 min
+python -m lens_lejepa agent-loop --config configs/agent/campaign_real.yaml       # 1 iteration, ~21 min
+```
+
+On the reference CPU (3,000 training images) pretraining reaches loss 0.063 and
+the campaign reaches 0.8467 validation / 0.8233 test accuracy, macro F1 0.8211,
+mean AUROC 0.9323 (axion 0.9415 / cdm 0.8777 / no_sub 0.9777). The same campaign
+with the synthetic-pretrained encoder reaches 0.7867 test / 0.9004 mean AUROC.
+These are CPU-scale numbers (64 px, vit_tiny, 20 epochs), not paper-scale, and
+the test set is a held-out slice rather than the official DeepLense test split.
+
 ### Synthetic bring-up dataset (not paper-grade)
 
 The generator writes the same `.npy` layout from DeepLense's Model II recipe

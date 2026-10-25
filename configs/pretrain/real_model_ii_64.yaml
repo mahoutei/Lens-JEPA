@@ -1,0 +1,37 @@
+# CPU pretraining on the real 64x64 DeepLense Model II images (held-out test
+# slice excluded). Same geometry and budget as sim_smoke.yaml, so the only
+# change is synthetic -> real data.
+#   python -m lens_lejepa pretrain --config configs/pretrain/real_model_ii_64.yaml
+#
+# 3,000 real images (1,000/class) from the MAE paper's Dataset1; the staged
+# test set (500/class) is disjoint. The geometry MUST match
+# configs/agent/campaign_real.yaml: the encoder is strict-loaded downstream.
+# NOT paper-scale: 64 px, vit_tiny, 20 epochs.
+method: lens_lejepa
+data_root: ../datasets
+dataset: Model_II
+image_size: 64
+patch_size: 8
+encoder: vit_tiny
+projector_dim: 256
+epochs: 20
+batch_size: 64
+lr: 5.0e-4
+start_lr: 5.0e-5
+final_lr: 5.0e-7
+warmup_epochs: 2
+weight_decay: 0.05
+final_weight_decay: 0.05
+objective:
+  sigreg_weight: 0.02
+  sigreg_slices: 128
+  blur_probability: 0.5
+  blur_sigma_max: 1.0
+  noise_std_max: 0.03
+seed: 42
+workers: 2
+device: cpu
+bf16: false
+collapse_patience: 100  # same as the sim baseline; see its comment
+output_dir: runs
+run_name: real_model_ii_64_seed42
